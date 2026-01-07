@@ -19,6 +19,7 @@ export interface Auction {
     itemCreatedAt?: string;
     enchantments?: Enchantment[];
     flatenedNBTJson?: string;
+    texture?: string;
 }
 
 export interface Enchantment {

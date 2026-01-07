@@ -65,7 +65,8 @@ public class AuctionsController : ControllerBase
                 a.Bin,
                 a.End,
                 a.FetchedAt,
-                EnchantmentCount = a.Enchantments.Count
+                EnchantmentCount = a.Enchantments.Count,
+                a.Texture
             })
             .ToListAsync();
 
@@ -93,6 +94,7 @@ public class AuctionsController : ControllerBase
                 Price = a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid,
                 a.Bin,
                 a.End,
+                a.Texture,
                 a.FetchedAt
             })
             .ToListAsync();

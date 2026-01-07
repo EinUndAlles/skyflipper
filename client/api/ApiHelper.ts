@@ -4,7 +4,20 @@ import { Auction, Stats, TagCount } from '../types';
 const API_BASE_URL = 'http://localhost:5135/api';
 
 // Image URL construction similar to hypixel-react
-export const getItemImageUrl = (tag: string, type: 'default' | 'vanilla' = 'default'): string => {
+export const getItemImageUrl = (tag: string, type: 'default' | 'vanilla' = 'default', texture?: string): string => {
+    if (texture) {
+        // Check if it's a value (decoded property or texture ID) or full URL
+        let textureId = texture;
+        if (texture.startsWith('http')) {
+            // Extract ID from http://textures.minecraft.net/texture/<ID>
+            const parts = texture.split('/');
+            textureId = parts[parts.length - 1];
+        }
+
+        // Use mc-heads.net to render the 3D head
+        return `https://mc-heads.net/head/${textureId}`;
+    }
+
     if (!tag) return '';
     // Use sky.coflnet.com as per hypixel-react
     return `https://sky.coflnet.com/static/icon/${tag}${type === 'vanilla' ? '/vanilla' : ''}`;

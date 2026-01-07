@@ -117,4 +117,10 @@ public class Auction
     /// Whether the auction was sold (had a winning bid).
     /// </summary>
     public bool WasSold { get; set; }
+
+    /// <summary>
+    /// The Base64 encoded texture value for the skull (if applicable), or the skin URL.
+    /// </summary>
+    [MaxLength(500)]
+    public string? Texture { get; set; }
 }

@@ -19,12 +19,12 @@ export default function NavBar() {
     return (
         <Navbar bg="dark" variant="dark" expand="lg" className="mb-4 shadow-sm" style={{ backdropFilter: 'blur(10px)', backgroundColor: 'rgba(33, 37, 41, 0.85)' }}>
             <Container>
-                <Navbar.Brand as={Link} href="/" className="fw-bold text-primary">SkyFlipperSolo</Navbar.Brand>
+                <Link href="/" className="navbar-brand fw-bold text-primary">SkyFlipperSolo</Link>
                 <Navbar.Toggle aria-controls="basic-navbar-nav" />
                 <Navbar.Collapse id="basic-navbar-nav">
                     <Nav className="me-auto">
-                        <Nav.Link as={Link} href="/">Home</Nav.Link>
-                        <Nav.Link as={Link} href="/search">All Auctions</Nav.Link>
+                        <Link href="/" className="nav-link">Home</Link>
+                        <Link href="/search" className="nav-link">All Auctions</Link>
                     </Nav>
                     <Form className="d-flex" onSubmit={handleSearch}>
                         <Form.Control

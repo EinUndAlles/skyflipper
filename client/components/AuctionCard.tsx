@@ -13,7 +13,7 @@ interface Props {
 }
 
 export default function AuctionCard({ auction }: Props) {
-    const imageUrl = getItemImageUrl(auction.tag);
+    const imageUrl = getItemImageUrl(auction.tag, 'default', auction.texture);
     const timeLeft = new Date(auction.end) > new Date()
         ? formatDistanceToNow(new Date(auction.end), { addSuffix: true })
         : 'Ended';

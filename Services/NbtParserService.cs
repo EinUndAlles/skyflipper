@@ -144,6 +144,21 @@ public class NbtParserService
                 auction.ItemCreatedAt = parsedDate;
             }
         }
+        
+        // Extract Skull Texture (for pets/talismans/skulls)
+        // Standard Minecraft saves SkullOwner in the "tag" compound
+        if (root.TryGet("tag", out NbtTag? tagNbt) && tagNbt is NbtCompound tagCompound)
+        {
+             if (tagCompound.TryGet("SkullOwner", out NbtTag? skullOwnerTag) && skullOwnerTag is NbtCompound skullOwner)
+             {
+                 ExtractTextureFromSkullOwner(auction, skullOwner);
+             }
+        }
+        else if (extraTag.TryGet("SkullOwner", out NbtTag? extraSkullOwner) && extraSkullOwner is NbtCompound extraSkullComp)
+        {
+             // Fallback to ExtraAttributes just in case
+             ExtractTextureFromSkullOwner(auction, extraSkullComp);
+        }
     }
 
     private NbtFile? ParseNbtFile(byte[] bytes)
@@ -306,4 +321,44 @@ public class NbtParserService
             return 0;
         }
     }
+
+
+    private void ExtractTextureFromSkullOwner(Auction auction, NbtCompound skullOwner)
+    {
+        if (skullOwner.TryGet("Properties", out NbtTag? propertiesTag) && propertiesTag is NbtCompound properties)
+        {
+            if (properties.TryGet("textures", out NbtTag? texturesTag) && texturesTag is NbtList texturesList)
+            {
+                var textureEntry = texturesList.Get<NbtCompound>(0);
+                if (textureEntry != null && textureEntry.TryGet("Value", out NbtTag? valueTag) && valueTag is NbtString valueStr)
+                {
+                    try 
+                    {
+                        var base64 = valueStr.StringValue;
+                        // Standardize Base64
+                        base64 = base64.Replace('-', '+').Replace('_', '/');
+                        switch (base64.Length % 4)
+                        {
+                            case 2: base64 += "=="; break;
+                            case 3: base64 += "="; break;
+                        }
+
+                        var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(base64));
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("textures", out var texturesProp) &&
+                            texturesProp.TryGetProperty("SKIN", out var skinProp) &&
+                            skinProp.TryGetProperty("url", out var urlProp))
+                        {
+                             auction.Texture = urlProp.GetString();
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore parsing errors
+                    }
+                }
+            }
+        }
+    }
+
 }
