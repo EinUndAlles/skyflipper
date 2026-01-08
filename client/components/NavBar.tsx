@@ -86,7 +86,7 @@ export default function NavBar() {
                         </Form>
 
                         {showDropdown && searchResults.length > 0 && (
-                            <ListGroup className="position-absolute w-100 mt-1 shadow-lg border-secondary" style={{ zIndex: 1050, maxHeight: '400px', overflowY: 'auto' }}>
+                            <ListGroup className="position-absolute w-100 mt-1 shadow-lg border-secondary" style={{ zIndex: 9999, maxHeight: '400px', overflowY: 'auto' }}>
                                 {searchResults.map((item) => (
                                     <ListGroup.Item
                                         key={item.tag}
