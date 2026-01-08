@@ -10,7 +10,7 @@ import { api, getItemImageUrl } from '../api/ApiHelper';
 
 export default function NavBar() {
     const [searchTerm, setSearchTerm] = useState('');
-    const [searchResults, setSearchResults] = useState<{ itemName: string, tag: string, tier: string, texture?: string }[]>([]);
+    const [searchResults, setSearchResults] = useState<{ itemName: string, tag: string, tier: string, texture?: string, filter?: string }[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
@@ -55,10 +55,12 @@ export default function NavBar() {
         }
     };
 
-    const handleItemClick = (tag: string) => {
-        setSearchTerm(''); // Clear search or keep it? Standard behavior usually clears or keeps item name. 
+    const handleItemClick = (tag: string, filter?: string) => {
+        setSearchTerm('');
         setShowDropdown(false);
-        router.push(`/item/${tag}`);
+        // Include filter as query param if provided (for pets)
+        const url = filter ? `/item/${tag}?filter=${encodeURIComponent(filter)}` : `/item/${tag}`;
+        router.push(url);
     };
 
     return (
@@ -87,11 +89,11 @@ export default function NavBar() {
 
                         {showDropdown && searchResults.length > 0 && (
                             <ListGroup className="position-absolute w-100 mt-1 shadow-lg border-secondary" style={{ zIndex: 9999, maxHeight: '400px', overflowY: 'auto' }}>
-                                {searchResults.map((item) => (
+                                {searchResults.map((item, index) => (
                                     <ListGroup.Item
-                                        key={item.tag}
+                                        key={`${item.tag}-${item.itemName}-${index}`}
                                         action
-                                        onClick={() => handleItemClick(item.tag)}
+                                        onClick={() => handleItemClick(item.tag, item.filter)}
                                         className="bg-dark text-light border-secondary d-flex align-items-center"
                                         style={{ cursor: 'pointer' }}
                                     >

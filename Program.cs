@@ -46,6 +46,9 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<HypixelAuction>(new Unboun
 builder.Services.AddSingleton<NbtParserService>();
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<FlipperService>();
+builder.Services.AddHostedService<SoldAuctionService>();
+builder.Services.AddHostedService<PriceAggregationService>();
+builder.Services.AddHostedService<FlipDetectionService>();
 
 
 var app = builder.Build();

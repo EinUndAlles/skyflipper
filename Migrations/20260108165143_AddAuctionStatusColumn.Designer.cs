@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SkyFlipperSolo.Data;
@@ -11,9 +12,11 @@ using SkyFlipperSolo.Data;
 namespace SkyFlipperSolo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260108165143_AddAuctionStatusColumn")]
+    partial class AddAuctionStatusColumn
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -69,9 +72,6 @@ namespace SkyFlipperSolo.Migrations
                     b.Property<int>("Reforge")
                         .HasColumnType("integer");
 
-                    b.Property<long?>("SoldPrice")
-                        .HasColumnType("bigint");
-
                     b.Property<DateTime>("Start")
                         .HasColumnType("timestamp with time zone");
 
@@ -111,12 +111,6 @@ namespace SkyFlipperSolo.Migrations
 
                     b.HasIndex("Uuid")
                         .IsUnique();
-
-                    b.HasIndex("Status", "End");
-
-                    b.HasIndex("Tag", "End");
-
-                    b.HasIndex("Bin", "Status", "End");
 
                     b.HasIndex("Tag", "Tier", "Reforge");
 
@@ -191,95 +185,6 @@ namespace SkyFlipperSolo.Migrations
                     b.HasIndex("NotificationSent");
 
                     b.ToTable("Flips");
-                });
-
-            modelBuilder.Entity("SkyFlipperSolo.Models.FlipOpportunity", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("AuctionEnd")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("AuctionUuid")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<long>("CurrentPrice")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("DetectedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("EstimatedProfit")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ItemName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ItemTag")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<long>("MedianPrice")
-                        .HasColumnType("bigint");
-
-                    b.Property<double>("ProfitMarginPercent")
-                        .HasColumnType("double precision");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AuctionUuid");
-
-                    b.HasIndex("DetectedAt");
-
-                    b.HasIndex("ProfitMarginPercent");
-
-                    b.ToTable("FlipOpportunities");
-                });
-
-            modelBuilder.Entity("SkyFlipperSolo.Models.ItemPriceHistory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<long>("AveragePrice")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ItemTag")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<long>("LowestBIN")
-                        .HasColumnType("bigint");
-
-                    b.Property<long>("MedianPrice")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("TotalSales")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Date");
-
-                    b.HasIndex("ItemTag", "Date")
-                        .IsUnique();
-
-                    b.ToTable("PriceHistory");
                 });
 
             modelBuilder.Entity("SkyFlipperSolo.Models.Enchantment", b =>

@@ -114,9 +114,15 @@ public class Auction
     public DateTime FetchedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// Whether the auction was sold (had a winning bid).
+    /// The status of the auction (Active, Sold, or Expired).
     /// </summary>
-    public bool WasSold { get; set; }
+    public AuctionStatus Status { get; set; } = AuctionStatus.ACTIVE;
+
+    /// <summary>
+    /// The final price at which this auction sold (from auctions_ended API).
+    /// Only populated for SOLD auctions. Different from HighestBidAmount for regular auctions.
+    /// </summary>
+    public long? SoldPrice { get; set; }
 
     /// <summary>
     /// The Base64 encoded texture value for the skull (if applicable), or the skin URL.

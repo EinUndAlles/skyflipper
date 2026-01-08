@@ -217,20 +217,23 @@ public class NbtParserService
     {
         var enchantments = new List<Enchantment>();
 
-        if (!extraTag.TryGet("enchantments", out NbtTag? enchTag) || enchTag is not NbtCompound enchCompound)
+        if (!extraTag.TryGet("enchantments", out NbtTag? enchTag))
         {
             return enchantments;
         }
 
-        foreach (var tag in enchCompound)
+        if (enchTag is not NbtCompound enchCompound)
         {
-            if (Enum.TryParse<EnchantmentType>(tag.Name, true, out var enchType))
-            {
-                byte level = 0;
-                if (tag is NbtInt intTag) level = (byte)intTag.IntValue;
-                else if (tag is NbtShort shortTag) level = (byte)shortTag.ShortValue;
-                else if (tag is NbtByte byteTag) level = byteTag.ByteValue;
+            return enchantments;
+        }
 
+        // Use Names property like reference implementation (line 1071 in dev/Data/NBT.cs)
+        foreach (var name in enchCompound.Names)
+        {
+            if (Enum.TryParse<EnchantmentType>(name, true, out var enchType))
+            {
+                // Get value using Get<NbtInt> like reference (line 1083)
+                var level = (byte)enchCompound.Get<fNbt.NbtInt>(name).IntValue;
                 enchantments.Add(new Enchantment(enchType, level));
             }
         }

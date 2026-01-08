@@ -1,0 +1,29 @@
+﻿{
+    "value":  [
+                  {
+                      "itemName":  "Aspect of the Dragons",
+                      "tag":  "ASPECT_OF_THE_DRAGON",
+                      "tier":  5,
+                      "texture":  null
+                  },
+                  {
+                      "itemName":  "Warped Aspect of the End",
+                      "tag":  "ASPECT_OF_THE_END",
+                      "tier":  3,
+                      "texture":  null
+                  },
+                  {
+                      "itemName":  "Aspect of the Jerry, Signature Edition",
+                      "tag":  "ASPECT_OF_THE_JERRY_SIGNATURE",
+                      "tier":  2,
+                      "texture":  null
+                  },
+                  {
+                      "itemName":  "Aspect of the Void",
+                      "tag":  "ASPECT_OF_THE_VOID",
+                      "tier":  4,
+                      "texture":  null
+                  }
+              ],
+    "Count":  4
+}

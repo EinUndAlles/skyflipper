@@ -73,16 +73,71 @@ public class AuctionsController : ControllerBase
         return Ok(auctions);
     }
 
+    /// <summary>
+    /// Admin endpoint to cleanup old ended auctions (mark as sold)
+    /// </summary>
+    [HttpPost("cleanup-old")]
+    public async Task<IActionResult> CleanupOldAuctions()
+    {
+        var now = DateTime.UtcNow;
+        var oldAuctions = await _context.Auctions
+            .Where(a => a.End < now && a.Status == AuctionStatus.ACTIVE)
+            .ToListAsync();
+
+        if (oldAuctions.Count > 0)
+        {
+            foreach (var auction in oldAuctions)
+            {
+                auction.Status = AuctionStatus.EXPIRED;
+            }
+            
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "Cleanup complete", Count = oldAuctions.Count });
+        }
+
+        return Ok(new { Message = "No old auctions to cleanup", Count = 0 });
+    }
+
 
     /// <summary>
     /// Get auctions by item tag
     /// </summary>
     [HttpGet("by-tag/{tag}")]
-    public async Task<IActionResult> GetByTag(string tag, [FromQuery] int limit = 50)
+    public async Task<IActionResult> GetByTag(
+        string tag, 
+        [FromQuery] int limit = 200, 
+        [FromQuery] string? filter = null,
+        [FromQuery] bool binOnly = true,
+        [FromQuery] bool showEnded = false)
     {
-        var auctions = await _context.Auctions
-            .Where(a => a.Tag == tag.ToUpper())
-            .OrderByDescending(a => a.End)
+        var upperTag = tag.ToUpper();
+        
+        // Build base query
+        var query = _context.Auctions.Where(a => a.Tag == upperTag);
+        
+        // If filter is provided and tag is PET, filter by name containing the filter
+        if (!string.IsNullOrEmpty(filter) && (upperTag == "PET" || upperTag.StartsWith("PET_")))
+        {
+            query = query.Where(a => a.ItemName.Contains(filter));
+        }
+        
+        // Filter by BIN only (default: true)
+        if (binOnly)
+        {
+            query = query.Where(a => a.Bin);
+        }
+        
+        // Filter by active auctions only (default: hide ended)
+        if (!showEnded)
+        {
+            query = query.Where(a => a.End > DateTime.UtcNow);
+        }
+        
+        // Always filter out sold/expired auctions (only show active)
+        query = query.Where(a => a.Status == AuctionStatus.ACTIVE);
+        
+        var auctions = await query
+            .OrderBy(a => a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid) // Sort by price (cheapest first)
             .Take(limit)
             .Select(a => new
             {
@@ -146,69 +201,96 @@ public class AuctionsController : ControllerBase
 
         query = query.ToUpper();
 
-        // Workaround for EF Core translation issues with GroupBy + First
-        // 1. Get distinct matching tags
-        var matchingTags = await _context.Auctions
+        // 1. Fetch a larger pool of potential matches to filter/group in memory
+        var rawMatches = await _context.Auctions
             .Where(a => a.ItemName.ToUpper().Contains(query) || a.Tag.Contains(query))
-            .Select(a => a.Tag)
-            .Distinct()
-            .Take(limit)
+            .OrderByDescending(a => a.End) // Get recent ones first
+            .Take(100) // Fetch enough to cover duplicates/variations
+            .Select(a => new
+            {
+                a.ItemName,
+                a.Tag,
+                a.Tier,
+                a.Texture,
+                a.Reforge,
+                EnchantmentCount = a.Enchantments.Count,
+                a.End
+            })
             .ToListAsync();
 
-        // 2. Fetch details for each tag
-        var items = new List<object>();
-        foreach (var tag in matchingTags)
-        {
-            // Prioritize "clean" items: No reforge, no enchantments, then most recent
-            var item = await _context.Auctions
-                .Where(a => a.Tag == tag)
-                .OrderBy(a => a.Reforge != Reforge.None) // False (0) comes before True (1)
-                .ThenBy(a => a.Enchantments.Any())       // False (0) comes before True (1)
-                .ThenByDescending(a => a.End)            // Then newest
-                .Select(a => new
-                {
-                    a.ItemName,
-                    a.Tag,
-                    a.Tier,
-                    a.Texture,
-                    a.Reforge
-                })
-                .FirstOrDefaultAsync();
-            
-            if (item != null)
+        var reforgeNames = Enum.GetNames(typeof(Reforge));
+
+        // 2. Process and Group
+        var groupedItems = rawMatches
+            .Select(item => 
             {
                 var cleanName = item.ItemName;
                 
-                // Clean up Pet names: "[Lvl 100] Slug (Epic)" -> "Slug"
-                if (item.Tag.StartsWith("PET"))
+                // --- Pet Cleaning ---
+                // Tag is "PET" (generic) or starts with "PET_" (specific skins/types)
+                if (item.Tag == "PET" || item.Tag.StartsWith("PET_"))
                 {
-                    // Regex to matching [Lvl <digits>] at start
+                    // Remove [Lvl 123] prefix
                     cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"^\[Lvl \d+\]\s+", "");
-                    
-                    // Remove rarity suffix like " (Common)"
-                    // Note: Rarity names are typically in parenthesis at the end
+                    // Remove (Rarity) suffix
                     cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s\(\w+\)$", "");
                 }
-                // Clean up Reforges: "Heroic Aspect of the End" -> "Aspect of the End"
-                else if (item.Reforge != Reforge.None)
+                // --- Reforge Cleaning ---
+                else 
                 {
-                    var reforgeName = item.Reforge.ToString();
-                    if (cleanName.StartsWith(reforgeName + " "))
+                    // Check if name starts with any known reforge
+                    foreach (var reforgeName in reforgeNames)
                     {
-                        cleanName = cleanName.Substring(reforgeName.Length + 1);
+                        if (reforgeName == "None") continue;
+
+                        if (cleanName.StartsWith(reforgeName + " ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            // SAFETY CHECK: Does the Tag contain the reforge name?
+                            // e.g. "Strong Dragon Chestplate" -> Tag "STRONG_DRAGON_..." -> Startswith "Strong "
+                            // We do NOT want to strip "Strong" because it's part of the item identity (Tag).
+                            // But "Heroic Aspect of the End" -> Tag "ASPECT_OF_THE_END" -> Strip "Heroic".
+                            
+                            if (!item.Tag.Contains(reforgeName.ToUpper()))
+                            {
+                                cleanName = cleanName.Substring(reforgeName.Length + 1);
+                                break; // Only remove one prefix
+                            }
+                        }
                     }
                 }
 
-                items.Add(new 
+                return new { CleanName = cleanName, Original = item };
+            })
+            .GroupBy(x => x.CleanName)
+            .Select(g => 
+            {
+                // Pick the "best" representative for this CleanName
+                var best = g.OrderByDescending(x => x.Original.Reforge == Reforge.None) // Prefer None
+                            .ThenBy(x => x.Original.EnchantmentCount == 0)              // Prefer Clean
+                            .ThenByDescending(x => x.Original.End)                      // Prefer Newest
+                            .First()
+                            .Original;
+                
+                var isPet = best.Tag == "PET" || best.Tag.StartsWith("PET_");
+                var displayName = isPet ? g.Key + " Pet" : g.Key;
+                
+                return new 
                 {
-                    ItemName = cleanName,
-                    item.Tag,
-                    item.Tier,
-                    item.Texture
-                });
-            }
-        }
+                    ItemName = displayName,
+                    Tag = best.Tag,
+                    best.Tier,
+                    best.Texture,
+                    // Include filter for pets (cleaned name without "Pet" suffix) so frontend can filter by name
+                    Filter = isPet ? g.Key : ""
+                };
+            })
+            // Sort by relevance: Prioritize items whose CleanName starts with or contains the query
+            .OrderByDescending(x => x.ItemName.ToUpper() == query) // Exact match first
+            .ThenByDescending(x => x.ItemName.ToUpper().StartsWith(query)) // Starts with
+            .ThenByDescending(x => x.ItemName.ToUpper().Contains(query)) // Contains
+            .Take(limit)
+            .ToList();
 
-        return Ok(items);
+        return Ok(groupedItems);
     }
 }

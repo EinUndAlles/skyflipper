@@ -4,7 +4,7 @@ import { Auction, Stats, TagCount } from '../types';
 const API_BASE_URL = 'http://localhost:5135/api';
 
 // Image URL construction similar to hypixel-react
-export const getItemImageUrl = (tag: string, type: 'default' | 'vanilla' = 'default', texture?: string): string => {
+export const getItemImageUrl = (tag: string, type: 'default' | 'vanilla' = 'default', texture?: string | null): string => {
     if (texture) {
         // Check if it's a value (decoded property or texture ID) or full URL
         let textureId = texture;
@@ -18,8 +18,12 @@ export const getItemImageUrl = (tag: string, type: 'default' | 'vanilla' = 'defa
         return `https://mc-heads.net/head/${textureId}`;
     }
 
-    if (!tag) return '';
-    // Use sky.coflnet.com as per hypixel-react
+    // Fallback: Use sky.coflnet.com tag-based icon for items without texture
+    if (!tag) {
+        // Ultimate fallback: minecraft item frame icon
+        return 'https://mc-heads.net/head/eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvODI2MDVkNmMyZjU1NjFhNTU2OGM5ZGQ1ZWJjMWI2NTU1YjRhZWE2OGJlNDkwMmYwMjhlZDM3NTk5MDc2In19fQ';
+    }
+
     return `https://sky.coflnet.com/static/icon/${tag}${type === 'vanilla' ? '/vanilla' : ''}`;
 };
 
@@ -40,9 +44,15 @@ export const api = {
         return response.data;
     },
 
-    getAuctionsByTag: async (tag: string, limit: number = 50): Promise<Auction[]> => {
+    getAuctionsByTag: async (
+        tag: string,
+        limit: number = 200,
+        filter?: string,
+        binOnly: boolean = true,
+        showEnded: boolean = false
+    ): Promise<Auction[]> => {
         const response = await axios.get<Auction[]>(`${API_BASE_URL}/auctions/by-tag/${tag}`, {
-            params: { limit }
+            params: { limit, filter, binOnly, showEnded }
         });
         return response.data;
     },
@@ -59,7 +69,7 @@ export const api = {
         return response.data;
     },
 
-    searchItems: async (query: string, limit: number = 10): Promise<{ itemName: string, tag: string, tier: string, texture?: string }[]> => {
+    searchItems: async (query: string, limit: number = 10): Promise<{ itemName: string, tag: string, tier: string, texture?: string, filter?: string }[]> => {
         const response = await axios.get(`${API_BASE_URL}/auctions/search`, {
             params: { query, limit }
         });

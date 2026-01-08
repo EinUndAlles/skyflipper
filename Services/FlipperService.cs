@@ -103,12 +103,6 @@ public class FlipperService : BackgroundService
 
             if (newAuctions.Count > 0)
             {
-                // Don't save enchantments for now to simplify - they cause FK issues
-                foreach (var auction in newAuctions)
-                {
-                    auction.Enchantments = new List<Enchantment>();
-                }
-
                 dbContext.Auctions.AddRange(newAuctions);
                 await dbContext.SaveChangesAsync(stoppingToken);
                 

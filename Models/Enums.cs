@@ -32,3 +32,13 @@ public enum Category
     BLOCKS,
     MISC
 }
+
+/// <summary>
+/// Represents the status of an auction.
+/// </summary>
+public enum AuctionStatus
+{
+    ACTIVE,
+    SOLD,
+    EXPIRED
+}

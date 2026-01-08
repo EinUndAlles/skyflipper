@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, use } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Container, Row, Col, Spinner, Alert, Button, Form, Badge } from 'react-bootstrap';
 import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { Auction } from '@/types';
@@ -13,16 +14,20 @@ interface ItemPageProps {
 export default function ItemPage({ params }: ItemPageProps) {
     const resolvedParams = use(params);
     const tag = resolvedParams.tag;
+    const searchParams = useSearchParams();
+    const nameFilter = searchParams.get('filter') || undefined;
+
     const [auctions, setAuctions] = useState<Auction[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [filter, setFilter] = useState<'lowest' | 'highest' | 'ending'>('lowest');
+    const [showEnded, setShowEnded] = useState(false);
 
     useEffect(() => {
         const fetchAuctions = async () => {
             try {
                 setLoading(true);
-                const data = await api.getAuctionsByTag(tag);
+                const data = await api.getAuctionsByTag(tag, 200, nameFilter, true, showEnded);
                 setAuctions(data);
             } catch (err) {
                 console.error(err);
@@ -35,7 +40,7 @@ export default function ItemPage({ params }: ItemPageProps) {
         if (tag) {
             fetchAuctions();
         }
-    }, [tag]);
+    }, [tag, nameFilter, showEnded]);
 
     const getFilteredAuctions = () => {
         const sorted = [...auctions];
@@ -93,7 +98,7 @@ export default function ItemPage({ params }: ItemPageProps) {
                                             item.tier === 'COMMON' ? '#FFFFFF' : '#FFFFFF',
                             textShadow: '2px 2px 4px rgba(0,0,0,0.5)'
                         }}>
-                            {item.itemName}
+                            {nameFilter ? `${nameFilter} Pet` : item.itemName}
                         </h2>
                     </div>
                 </div>
@@ -103,7 +108,14 @@ export default function ItemPage({ params }: ItemPageProps) {
                 </div>
             )}
 
-            <div className="mb-4 d-flex justify-content-end">
+            <div className="mb-4 d-flex justify-content-end gap-2">
+                <Button
+                    variant={showEnded ? "outline-warning" : "outline-secondary"}
+                    onClick={() => setShowEnded(!showEnded)}
+                    size="sm"
+                >
+                    {showEnded ? "Showing Ended" : "Hide Ended"}
+                </Button>
                 <Form.Select
                     value={filter}
                     onChange={(e) => setFilter(e.target.value as any)}

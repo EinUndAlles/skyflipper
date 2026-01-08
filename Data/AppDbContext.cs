@@ -15,6 +15,8 @@ public class AppDbContext : DbContext
     public DbSet<Auction> Auctions { get; set; }
     public DbSet<Enchantment> Enchantments { get; set; }
     public DbSet<Flip> Flips { get; set; }
+    public DbSet<ItemPriceHistory> PriceHistory { get; set; }
+    public DbSet<FlipOpportunity> FlipOpportunities { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +30,11 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Tag);
             entity.HasIndex(e => e.End);
             entity.HasIndex(e => new { e.Tag, e.Tier, e.Reforge });
+            
+            // Composite indexes for price history and flip detection
+            entity.HasIndex(e => new { e.Tag, e.End });
+            entity.HasIndex(e => new { e.Bin, e.Status, e.End });
+            entity.HasIndex(e => new { e.Status, e.End });
 
             entity.HasMany(e => e.Enchantments)
                 .WithOne(e => e.Auction)
@@ -51,6 +58,21 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Enchantment>(entity =>
         {
             entity.HasIndex(e => new { e.AuctionId, e.Type });
+        });
+
+        // ItemPriceHistory configuration
+        modelBuilder.Entity<ItemPriceHistory>(entity =>
+        {
+            entity.HasIndex(e => new { e.ItemTag, e.Date }).IsUnique();
+            entity.HasIndex(e => e.Date);
+        });
+
+        // FlipOpportunity configuration
+        modelBuilder.Entity<FlipOpportunity>(entity =>
+        {
+            entity.HasIndex(e => e.AuctionUuid);
+            entity.HasIndex(e => e.DetectedAt);
+            entity.HasIndex(e => e.ProfitMarginPercent);
         });
     }
 }
