@@ -62,7 +62,7 @@ export default function NavBar() {
     };
 
     return (
-        <Navbar bg="dark" variant="dark" expand="lg" className="mb-4 shadow-sm" style={{ backdropFilter: 'blur(10px)', backgroundColor: 'rgba(33, 37, 41, 0.85)' }}>
+        <Navbar bg="dark" variant="dark" expand="lg" className="mb-4 shadow-sm" style={{ backdropFilter: 'blur(10px)', backgroundColor: 'rgba(33, 37, 41, 0.85)', position: 'relative', zIndex: 1050 }}>
             <Container>
                 <Link href="/" className="navbar-brand fw-bold text-primary">SkyFlipperSolo</Link>
                 <Navbar.Toggle aria-controls="basic-navbar-nav" />
