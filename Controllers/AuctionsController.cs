@@ -155,24 +155,58 @@ public class AuctionsController : ControllerBase
             .Take(limit)
             .ToListAsync();
 
-        // 2. Fetch details for each tag (N+1 but limit is small)
+        // 2. Fetch details for each tag
         var items = new List<object>();
         foreach (var tag in matchingTags)
         {
+            // Prioritize "clean" items: No reforge, no enchantments, then most recent
             var item = await _context.Auctions
                 .Where(a => a.Tag == tag)
-                .OrderByDescending(a => a.End) // Get most recent/relevant
+                .OrderBy(a => a.Reforge != Reforge.None) // False (0) comes before True (1)
+                .ThenBy(a => a.Enchantments.Any())       // False (0) comes before True (1)
+                .ThenByDescending(a => a.End)            // Then newest
                 .Select(a => new
                 {
                     a.ItemName,
                     a.Tag,
                     a.Tier,
-                    a.Texture
+                    a.Texture,
+                    a.Reforge
                 })
                 .FirstOrDefaultAsync();
             
             if (item != null)
-                items.Add(item);
+            {
+                var cleanName = item.ItemName;
+                
+                // Clean up Pet names: "[Lvl 100] Slug (Epic)" -> "Slug"
+                if (item.Tag.StartsWith("PET"))
+                {
+                    // Regex to matching [Lvl <digits>] at start
+                    cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"^\[Lvl \d+\]\s+", "");
+                    
+                    // Remove rarity suffix like " (Common)"
+                    // Note: Rarity names are typically in parenthesis at the end
+                    cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s\(\w+\)$", "");
+                }
+                // Clean up Reforges: "Heroic Aspect of the End" -> "Aspect of the End"
+                else if (item.Reforge != Reforge.None)
+                {
+                    var reforgeName = item.Reforge.ToString();
+                    if (cleanName.StartsWith(reforgeName + " "))
+                    {
+                        cleanName = cleanName.Substring(reforgeName.Length + 1);
+                    }
+                }
+
+                items.Add(new 
+                {
+                    ItemName = cleanName,
+                    item.Tag,
+                    item.Tier,
+                    item.Texture
+                });
+            }
         }
 
         return Ok(items);
