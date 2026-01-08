@@ -134,4 +134,47 @@ public class AuctionsController : ControllerBase
 
         return Ok(tags);
     }
+
+    /// <summary>
+    /// Search items by name or tag (autocomplete)
+    /// </summary>
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchItems([FromQuery] string query, [FromQuery] int limit = 10)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return Ok(new List<object>());
+
+        query = query.ToUpper();
+
+        // Workaround for EF Core translation issues with GroupBy + First
+        // 1. Get distinct matching tags
+        var matchingTags = await _context.Auctions
+            .Where(a => a.ItemName.ToUpper().Contains(query) || a.Tag.Contains(query))
+            .Select(a => a.Tag)
+            .Distinct()
+            .Take(limit)
+            .ToListAsync();
+
+        // 2. Fetch details for each tag (N+1 but limit is small)
+        var items = new List<object>();
+        foreach (var tag in matchingTags)
+        {
+            var item = await _context.Auctions
+                .Where(a => a.Tag == tag)
+                .OrderByDescending(a => a.End) // Get most recent/relevant
+                .Select(a => new
+                {
+                    a.ItemName,
+                    a.Tag,
+                    a.Tier,
+                    a.Texture
+                })
+                .FirstOrDefaultAsync();
+            
+            if (item != null)
+                items.Add(item);
+        }
+
+        return Ok(items);
+    }
 }

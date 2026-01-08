@@ -30,8 +30,8 @@ public class NbtParserService
             StartingBid = hypixelAuction.StartingBid,
             HighestBidAmount = hypixelAuction.HighestBidAmount,
             Bin = hypixelAuction.Bin,
-            Start = hypixelAuction.Start,
-            End = hypixelAuction.End,
+            Start = DateTime.SpecifyKind(hypixelAuction.Start, DateTimeKind.Utc),
+            End = DateTime.SpecifyKind(hypixelAuction.End, DateTimeKind.Utc),
             AuctioneerId = hypixelAuction.Auctioneer,
             FetchedAt = DateTime.UtcNow
         };
@@ -141,7 +141,7 @@ public class NbtParserService
             else if (timestampTag is NbtString timestampStr && 
                      DateTime.TryParse(timestampStr.StringValue, out var parsedDate))
             {
-                auction.ItemCreatedAt = parsedDate;
+                auction.ItemCreatedAt = DateTime.SpecifyKind(parsedDate, DateTimeKind.Utc);
             }
         }
         

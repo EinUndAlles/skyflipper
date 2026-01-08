@@ -44,10 +44,9 @@ export default function AuctionCard({ auction }: Props) {
                 >
                     {auction.itemName}
                 </Card.Title>
-                <Badge bg="dark" className="mb-2" style={{ color: rarityColor, borderColor: rarityColor, border: '1px solid' }}>
+                <Badge bg="dark" className="mb-3" style={{ color: rarityColor, borderColor: rarityColor, border: '1px solid' }}>
                     {rarityName}
                 </Badge>
-                <Card.Text className="text-muted small mb-3">{auction.tag}</Card.Text>
 
                 <div className="mt-auto w-100">
                     <h4 className="fw-bold mb-3 text-warning">{price} Coins</h4>

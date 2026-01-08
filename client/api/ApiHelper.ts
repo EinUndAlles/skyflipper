@@ -57,5 +57,12 @@ export const api = {
     getAuction: async (uuid: string): Promise<Auction> => {
         const response = await axios.get<Auction>(`${API_BASE_URL}/auctions/${uuid}`);
         return response.data;
+    },
+
+    searchItems: async (query: string, limit: number = 10): Promise<{ itemName: string, tag: string, tier: string, texture?: string }[]> => {
+        const response = await axios.get(`${API_BASE_URL}/auctions/search`, {
+            params: { query, limit }
+        });
+        return response.data;
     }
 };
