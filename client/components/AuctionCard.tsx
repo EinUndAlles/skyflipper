@@ -1,22 +1,52 @@
 'use client';
 
 import { Card, Badge, Button } from 'react-bootstrap';
+import { useState, useEffect } from 'react';
 import { Auction } from '@/types';
 import { getItemImageUrl } from '@/api/ApiHelper';
 import { getRarityColor, getRarityName } from '@/utils/rarity';
 import Image from 'next/image';
 import Link from 'next/link';
-import { formatDistanceToNow } from 'date-fns';
+
 
 interface Props {
     auction: Auction;
 }
 
 export default function AuctionCard({ auction }: Props) {
+    const [timeLeft, setTimeLeft] = useState('');
+
+    useEffect(() => {
+        const updateTime = () => {
+            const now = new Date();
+            const endDate = new Date(auction.end);
+            const diff = endDate.getTime() - now.getTime();
+
+            if (diff <= 0) {
+                setTimeLeft('Ended');
+                return;
+            }
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+            const parts = [];
+            if (days > 0) parts.push(`${days}d`);
+            if (hours > 0 || days > 0) parts.push(`${hours}h`);
+            parts.push(`${minutes}m`);
+            parts.push(`${seconds}s`);
+
+            setTimeLeft(parts.join(' '));
+        };
+
+        updateTime();
+        const interval = setInterval(updateTime, 1000);
+        return () => clearInterval(interval);
+    }, [auction.end]);
+
     const imageUrl = getItemImageUrl(auction.tag, 'default', auction.texture);
-    const timeLeft = new Date(auction.end) > new Date()
-        ? formatDistanceToNow(new Date(auction.end), { addSuffix: true })
-        : 'Ended';
 
     // Format price with commas
     const price = auction.price.toLocaleString();
