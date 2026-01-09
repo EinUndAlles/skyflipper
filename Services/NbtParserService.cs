@@ -58,10 +58,22 @@ public class NbtParserService
         // Parse NBT data
         try
         {
-            // Store raw NBT bytes for later NbtData/NBTLookup creation
-            auction.RawNbtBytes = hypixelAuction.ItemBytes;
-            
-            ParseNbtData(auction, hypixelAuction.ItemBytes);
+            // Store raw NBT bytes for later processing
+            if (!string.IsNullOrEmpty(hypixelAuction.ItemBytes))
+            {
+                auction.RawNbtBytes = hypixelAuction.ItemBytes;
+            }
+
+            // Parse NBT data if available
+            if (!string.IsNullOrEmpty(hypixelAuction.ItemBytes))
+            {
+                ParseNbtData(auction, hypixelAuction.ItemBytes);
+            }
+            // Handle bazaar enchanted books (no NBT tag, extract from item name)
+            else if (auction.Tag == "ENCHANTED_BOOK")
+            {
+                ParseBazaarEnchantedBook(auction);
+            }
         }
         catch (Exception ex)
         {
@@ -637,11 +649,92 @@ public class NbtParserService
 
             return GetExtraTag(root);
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogDebug(ex, "Failed to extract ExtraTag from NBT bytes");
             return null;
         }
     }
 
+    /// <summary>
+    /// Parses bazaar enchanted books that don't have NBT data.
+    /// Extract enchantment name and level from item name.
+    /// Based on Coflnet reference NBT.cs lines 188-243.
+    /// Example: "Enchanted Book (Protection V)" → enchantment=PROTECTION, level=5
+    /// </summary>
+    private void ParseBazaarEnchantedBook(Auction auction)
+    {
+        // Pattern: "Enchanted Book (Enchantment Name Level)"
+        var match = System.Text.RegularExpressions.Regex.Match(
+            auction.ItemName ?? "", 
+            @"Enchanted Book \((.+?)\s+([IVX]+)\)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        );
+
+        if (!match.Success) return;
+
+        var enchantName = match.Groups[1].Value.ToUpper().Replace(" ", "_");
+        var levelRoman = match.Groups[2].Value;
+
+        // Convert roman numerals to int
+        var level = RomanToInt(levelRoman);
+
+        // Try to parse enchantment type
+        if (Enum.TryParse<EnchantmentType>(enchantName, true, out var enchType))
+        {
+            auction.Enchantments = new List<Enchantment>
+            {
+                new Enchantment(enchType, (byte)level)
+            };
+        }
+    }
+
+    /// <summary>
+    /// Converts Roman numerals to integers.
+    /// </summary>
+    private int RomanToInt(string roman)
+    {
+        var romanMap = new Dictionary<char, int>
+        {
+            {'I', 1}, {'V', 5}, {'X', 10}, {'L', 50}, {'C', 100}, {'D', 500}, {'M', 1000}
+        };
+
+        int result = 0;
+        int prevValue = 0;
+
+        for (int i = roman.Length - 1; i >= 0; i--)
+        {
+            int currentValue = romanMap.GetValueOrDefault(roman[i], 0);
+            if (currentValue < prevValue)
+                result -= currentValue;
+            else
+                result += currentValue;
+            prevValue = currentValue;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts tier/rarity from item lore (last line).
+    /// Based on Coflnet reference NBT.cs lines 245-269.
+    /// Used as fallback when tier enum parsing fails.
+    /// </summary>
+    private Tier ExtractTierFromLore(string[] loreLines)
+    {
+        if (loreLines == null || loreLines.Length == 0)
+            return Tier.UNKNOWN;
+
+        var lastLine = loreLines[^1].ToUpper();
+
+        if (lastLine.Contains("MYTHIC")) return Tier.MYTHIC;
+        if (lastLine.Contains("LEGENDARY")) return Tier.LEGENDARY;
+        if (lastLine.Contains("EPIC")) return Tier.EPIC;
+        if (lastLine.Contains("RARE")) return Tier.RARE;
+        if (lastLine.Contains("UNCOMMON")) return Tier.UNCOMMON;
+        if (lastLine.Contains("COMMON")) return Tier.COMMON;
+        if (lastLine.Contains("SPECIAL")) return Tier.SPECIAL;
+        if (lastLine.Contains("VERY SPECIAL")) return Tier.VERY_SPECIAL;
+
+        return Tier.UNKNOWN;
+    }
 }
