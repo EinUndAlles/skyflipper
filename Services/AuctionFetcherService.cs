@@ -5,7 +5,7 @@ namespace SkyFlipperSolo.Services;
 
 /// <summary>
 /// Background service that fetches auctions from the Hypixel API.
-/// Based on: SkyUpdater/Updater.cs LoadPage and RunUpdate methods.
+/// Features: Tracks processed auction IDs to skip duplicates, delays between page batches.
 /// </summary>
 public class AuctionFetcherService : BackgroundService
 {
@@ -17,6 +17,8 @@ public class AuctionFetcherService : BackgroundService
 
     private DateTime _lastApiUpdate = DateTime.MinValue;
     private int _fetchIntervalSeconds;
+    private readonly HashSet<string> _processedAuctionIds = new(); // Track processed UUIDs
+    private const int DelayBetweenPageBatchesMs = 250; // Delay between batches of 5 pages
 
     public AuctionFetcherService(
         IHttpClientFactory httpClientFactory,
@@ -35,7 +37,7 @@ public class AuctionFetcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("AuctionFetcherService starting...");
+        _logger.LogInformation("AuctionFetcherService starting (duplicate tracking enabled)...");
 
         // Wait a bit for the app to fully start
         await Task.Delay(2000, stoppingToken);
@@ -86,12 +88,22 @@ public class AuctionFetcherService : BackgroundService
         _lastApiUpdate = firstPage.LastUpdatedDateTime;
         var totalPages = firstPage.TotalPages;
         var totalAuctions = 0;
+        var skippedDuplicates = 0;
 
         _logger.LogInformation("Fetching {Pages} pages, {Total} total auctions...", totalPages, firstPage.TotalAuctions);
 
+        // Clear old processed IDs (auctions from previous API update cycle)
+        // Keep a sliding window to handle auctions that span multiple updates
+        if (_processedAuctionIds.Count > 500000) // Limit memory usage
+        {
+            _processedAuctionIds.Clear();
+            _logger.LogDebug("Cleared processed auction ID cache (was over 500k)");
+        }
+
         // Process first page
-        await ProcessPage(firstPage, stoppingToken);
-        totalAuctions += firstPage.Auctions.Count;
+        var (processed, skipped) = await ProcessPage(firstPage, stoppingToken);
+        totalAuctions += processed;
+        skippedDuplicates += skipped;
 
         // Fetch remaining pages concurrently (in batches to avoid overwhelming the API)
         var batchSize = 5;
@@ -104,20 +116,30 @@ public class AuctionFetcherService : BackgroundService
                 .ToList();
 
             var results = await Task.WhenAll(tasks);
-            totalAuctions += results.Sum();
+            totalAuctions += results.Sum(r => r.processed);
+            skippedDuplicates += results.Sum(r => r.skipped);
+
+            // Delay between page batches to reduce API load
+            if (i + batchSize < totalPages)
+            {
+                await Task.Delay(DelayBetweenPageBatchesMs, stoppingToken);
+            }
         }
 
         var elapsed = DateTime.UtcNow - startTime;
-        _logger.LogInformation("Fetched {Count} auctions in {Elapsed:F1}s", totalAuctions, elapsed.TotalSeconds);
+        _logger.LogInformation("✅ Fetched {Count} new auctions (skipped {Skipped} duplicates) in {Elapsed:F1}s", 
+            totalAuctions, skippedDuplicates, elapsed.TotalSeconds);
     }
 
-    private async Task<int> FetchAndProcessPage(HttpClient client, int page, CancellationToken stoppingToken)
+    private async Task<(int processed, int skipped)> FetchAndProcessPage(
+        HttpClient client, 
+        int page, 
+        CancellationToken stoppingToken)
     {
         var pageData = await FetchPage(client, page, stoppingToken);
-        if (pageData == null) return 0;
+        if (pageData == null) return (0, 0);
 
-        await ProcessPage(pageData, stoppingToken);
-        return pageData.Auctions.Count;
+        return await ProcessPage(pageData, stoppingToken);
     }
 
     private async Task<AuctionPageResponse?> FetchPage(HttpClient client, int page, CancellationToken stoppingToken)
@@ -144,18 +166,44 @@ public class AuctionFetcherService : BackgroundService
         }
     }
 
-    private async Task ProcessPage(AuctionPageResponse page, CancellationToken stoppingToken)
+    private async Task<(int processed, int skipped)> ProcessPage(
+        AuctionPageResponse page, 
+        CancellationToken stoppingToken)
     {
+        int processed = 0;
+        int skipped = 0;
+
         foreach (var auction in page.Auctions)
         {
             // Only process BIN auctions (flipping non-BIN is much harder)
-            if (!auction.Bin) continue;
+            if (!auction.Bin)
+            {
+                skipped++;
+                continue;
+            }
 
             // Skip auctions that already ended
-            if (auction.End < DateTime.UtcNow) continue;
+            if (auction.End < DateTime.UtcNow)
+            {
+                skipped++;
+                continue;
+            }
+
+            // Skip already processed auctions (duplicates from same API update)
+            if (_processedAuctionIds.Contains(auction.Uuid))
+            {
+                skipped++;
+                continue;
+            }
+
+            // Mark as processed
+            _processedAuctionIds.Add(auction.Uuid);
 
             // Push to channel for processing
             await _auctionChannel.Writer.WriteAsync(auction, stoppingToken);
+            processed++;
         }
+
+        return (processed, skipped);
     }
 }
