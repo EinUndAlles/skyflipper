@@ -34,7 +34,7 @@ public class TestController : ControllerBase
                 .CountAsync(),
             
             // Check price history
-            PriceHistoryRecords = await _context.PriceHistory.CountAsync(),
+            PriceHistoryRecords = await _context.AveragePrices.CountAsync(),
             
             // Check flips
             DetectedFlips = await _context.FlipOpportunities.CountAsync(),

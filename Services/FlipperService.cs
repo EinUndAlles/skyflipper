@@ -103,11 +103,57 @@ public class FlipperService : BackgroundService
 
             if (newAuctions.Count > 0)
             {
+                // Step 1: Create NbtData for each auction (before first save)
+                foreach (var auction in newAuctions)
+                {
+                    if (string.IsNullOrEmpty(auction.RawNbtBytes)) continue;
+
+                    var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
+                    if (extraTag != null)
+                    {
+                        var nbtData = _nbtParser.CreateNbtData(extraTag);
+                        if (nbtData != null)
+                        {
+                            auction.NbtData = nbtData;
+                        }
+                    }
+                }
+
+                // Step 2: Save auctions with NbtData
                 dbContext.Auctions.AddRange(newAuctions);
                 await dbContext.SaveChangesAsync(stoppingToken);
-                
-                _logger.LogInformation("✅ Saved {Count} auctions (skipped {Skipped} existing)", 
-                    newAuctions.Count, skipped);
+
+                // Step 3: Create NBTLookups (requires auction IDs from database)
+                var lookupBatch = new List<NBTLookup>();
+                foreach (var auction in newAuctions)
+                {
+                    if (string.IsNullOrEmpty(auction.RawNbtBytes)) continue;
+
+                    var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
+                    if (extraTag != null)
+                    {
+                        var lookups = _nbtParser.CreateLookup(extraTag, auction.Id);
+                        lookupBatch.AddRange(lookups);
+                    }
+                }
+
+                // Step 4: Save all NBTLookups in batch
+                if (lookupBatch.Count > 0)
+                {
+                    dbContext.NBTLookups.AddRange(lookupBatch);
+                    await dbContext.SaveChangesAsync(stoppingToken);
+                    
+                    _logger.LogInformation("✅ Saved {Count} auctions with {NbtCount} NBT data, {LookupCount} lookups (skipped {Skipped})", 
+                        newAuctions.Count, 
+                        newAuctions.Count(a => a.NbtData != null),
+                        lookupBatch.Count,
+                        skipped);
+                }
+                else
+                {
+                    _logger.LogInformation("✅ Saved {Count} auctions (skipped {Skipped} existing)", 
+                        newAuctions.Count, skipped);
+                }
             }
 
             return (newAuctions.Count, skipped);

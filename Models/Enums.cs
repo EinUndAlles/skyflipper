@@ -42,3 +42,12 @@ public enum AuctionStatus
     SOLD,
     EXPIRED
 }
+
+/// <summary>
+/// Represents the granularity of price data (hourly vs daily).
+/// </summary>
+public enum PriceGranularity
+{
+    Hourly,
+    Daily
+}

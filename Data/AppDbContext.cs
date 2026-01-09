@@ -15,8 +15,10 @@ public class AppDbContext : DbContext
     public DbSet<Auction> Auctions { get; set; }
     public DbSet<Enchantment> Enchantments { get; set; }
     public DbSet<Flip> Flips { get; set; }
-    public DbSet<ItemPriceHistory> PriceHistory { get; set; }
+    public DbSet<AveragePrice> AveragePrices { get; set; }
     public DbSet<FlipOpportunity> FlipOpportunities { get; set; }
+    public DbSet<NbtData> NbtData { get; set; }
+    public DbSet<NBTLookup> NBTLookups { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +42,16 @@ public class AppDbContext : DbContext
                 .WithOne(e => e.Auction)
                 .HasForeignKey(e => e.AuctionId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.NBTLookups)
+                .WithOne(e => e.Auction)
+                .HasForeignKey(e => e.AuctionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.NbtData)
+                .WithMany()
+                .HasForeignKey(e => e.NbtDataId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // Flip configuration
@@ -60,11 +72,15 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.AuctionId, e.Type });
         });
 
-        // ItemPriceHistory configuration
-        modelBuilder.Entity<ItemPriceHistory>(entity =>
+        // AveragePrice configuration (replaces ItemPriceHistory)
+        modelBuilder.Entity<AveragePrice>(entity =>
         {
-            entity.HasIndex(e => new { e.ItemTag, e.Date }).IsUnique();
-            entity.HasIndex(e => e.Date);
+            // Unique composite index for preventing duplicate aggregates
+            entity.HasIndex(e => new { e.ItemTag, e.Timestamp, e.Granularity }).IsUnique();
+            // Index for querying by item and granularity
+            entity.HasIndex(e => new { e.ItemTag, e.Granularity });
+            // Index for timestamp-based queries
+            entity.HasIndex(e => e.Timestamp);
         });
 
         // FlipOpportunity configuration
@@ -73,6 +89,17 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.AuctionUuid);
             entity.HasIndex(e => e.DetectedAt);
             entity.HasIndex(e => e.ProfitMarginPercent);
+        });
+
+        // NBTLookup configuration
+        modelBuilder.Entity<NBTLookup>(entity =>
+        {
+            // Composite index for filtering by key and numeric value (e.g., stars)
+            entity.HasIndex(e => new { e.Key, e.ValueNumeric });
+            // Composite index for filtering by key and string value (e.g., pet skins)
+            entity.HasIndex(e => new { e.Key, e.ValueString });
+            // Index on auction for efficient joins
+            entity.HasIndex(e => e.AuctionId);
         });
     }
 }

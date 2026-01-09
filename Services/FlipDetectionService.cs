@@ -55,31 +55,52 @@ public class FlipDetectionService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        // Get price history from last 7 days
-        var cutoffDate = DateTime.UtcNow.Date.AddDays(-PRICE_HISTORY_DAYS);
-        var priceHistory = await dbContext.PriceHistory
-            .Where(p => p.Date >= cutoffDate && p.TotalSales >= MIN_SALES_THRESHOLD)
-            .ToListAsync(stoppingToken);
-
-        // Calculate median of medians for each item tag
-        var priceMap = priceHistory
-            .GroupBy(p => p.ItemTag)
-            .ToDictionary(
-                g => g.Key,
-                g => new 
-                { 
-                    MedianPrice = (long)g.Average(p => p.MedianPrice), // Average of daily medians
-                    TotalSales = g.Sum(p => p.TotalSales)
-                });
-
-        // Get active BIN auctions
         var now = DateTime.UtcNow;
+
+        // Step 1: Get hourly prices from last 24 hours (more accurate for active items)
+        var hourlyPrices = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.Hourly &&
+                       p.Timestamp > now.AddHours(-24) &&
+                       p.Volume >= MIN_SALES_THRESHOLD)
+            .GroupBy(p => p.ItemTag)
+            .Select(g => new
+            {
+                Tag = g.Key,
+                MedianPrice = g.Average(p => p.Median),
+                Volume = g.Sum(p => p.Volume),
+                IsRecent = true
+            })
+            .ToDictionaryAsync(p => p.Tag, stoppingToken);
+
+        // Step 2: Get daily prices for items without recent hourly data
+        var hourlyTags = hourlyPrices.Keys.ToList();
+        var dailyPrices = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.Daily &&
+                       p.Timestamp > now.AddDays(-PRICE_HISTORY_DAYS) &&
+                       p.Volume >= MIN_SALES_THRESHOLD &&
+                       !hourlyTags.Contains(p.ItemTag))
+            .GroupBy(p => p.ItemTag)
+            .Select(g => new
+            {
+                Tag = g.Key,
+                MedianPrice = g.Average(p => p.Median),
+                Volume = g.Sum(p => p.Volume),
+                IsRecent = false
+            })
+            .ToDictionaryAsync(p => p.Tag, stoppingToken);
+
+        // Step 3: Merge hourly and daily data (hourly takes priority)
+        var allPrices = hourlyPrices
+            .Concat(dailyPrices)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        // Step 4: Get active BIN auctions
         var activeAuctions = await dbContext.Auctions
-            .Where(a => a.Bin && 
-                       a.Status == AuctionStatus.ACTIVE && 
-                       a.End > now)
-            .Select(a => new 
+            .Where(a => a.Bin &&
+                       a.Status == AuctionStatus.ACTIVE &&
+                       a.End > now &&
+                       allPrices.Keys.Contains(a.Tag))
+            .Select(a => new
             {
                 a.Uuid,
                 a.Tag,
@@ -92,25 +113,23 @@ public class FlipDetectionService : BackgroundService
 
         var flips = new List<FlipOpportunity>();
 
+        // Step 5: Calculate flips
         foreach (var auction in activeAuctions)
         {
-            if (!priceMap.TryGetValue(auction.Tag, out var priceData))
+            if (!allPrices.TryGetValue(auction.Tag, out var priceData))
                 continue;
 
-            // Only consider items with enough sales data
-            if (priceData.TotalSales < MIN_SALES_THRESHOLD)
+            if (priceData.Volume < MIN_SALES_THRESHOLD)
                 continue;
 
-            var currentPrice = auction.HighestBidAmount > 0 
-                ? auction.HighestBidAmount 
+            var currentPrice = auction.HighestBidAmount > 0
+                ? auction.HighestBidAmount
                 : auction.StartingBid;
-            var medianPrice = priceData.MedianPrice;
+            var medianPrice = (long)priceData.MedianPrice;
 
-            // Skip if median price is too low (likely junk items)
-            if (medianPrice < 100000) // 100k coins minimum
-                continue;
+            // Skip low-value items
+            if (medianPrice < 100000) continue;
 
-            // Calculate profit margin
             var profitMargin = (double)(medianPrice - currentPrice) / medianPrice;
 
             if (profitMargin >= MIN_PROFIT_MARGIN)
@@ -124,12 +143,13 @@ public class FlipDetectionService : BackgroundService
                     MedianPrice = medianPrice,
                     EstimatedProfit = medianPrice - currentPrice,
                     ProfitMarginPercent = profitMargin * 100,
-                    AuctionEnd = auction.End
+                    AuctionEnd = auction.End,
+                    DataSource = priceData.IsRecent ? "Hourly (24h)" : "Daily (7d)"
                 });
             }
         }
 
-        // Sort by profit margin and take top results
+        // Sort and limit results
         flips = flips
             .OrderByDescending(f => f.ProfitMarginPercent)
             .Take(MAX_FLIPS_TO_STORE)
@@ -142,10 +162,13 @@ public class FlipDetectionService : BackgroundService
         {
             dbContext.FlipOpportunities.AddRange(flips);
             await dbContext.SaveChangesAsync(stoppingToken);
-            
+
             var topFlip = flips.First();
-            _logger.LogInformation("🔥 Detected {Count} flips! Top: {Item} (-{Margin:F1}%, profit: {Profit:N0})",
+            var hourlyCount = flips.Count(f => f.DataSource.StartsWith("Hourly"));
+            _logger.LogInformation("🔥 Detected {Count} flips ({Hourly} hourly, {Daily} daily)! Top: {Item} (-{Margin:F1}%, profit: {Profit:N0})",
                 flips.Count,
+                hourlyCount,
+                flips.Count - hourlyCount,
                 topFlip.ItemName,
                 topFlip.ProfitMarginPercent,
                 topFlip.EstimatedProfit);

@@ -42,4 +42,10 @@ public class FlipOpportunity
     /// When the auction ends.
     /// </summary>
     public DateTime AuctionEnd { get; set; }
+
+    /// <summary>
+    /// Data source for the median price ("Hourly (24h)" or "Daily (7d)").
+    /// </summary>
+    [MaxLength(20)]
+    public string DataSource { get; set; } = "Unknown";
 }

@@ -64,15 +64,17 @@ public class FlipsController : ControllerBase
     /// Get price history for a specific item.
     /// </summary>
     [HttpGet("history/{tag}")]
-    public async Task<ActionResult<List<ItemPriceHistory>>> GetPriceHistory(
+    public async Task<ActionResult<List<AveragePrice>>> GetPriceHistory(
         string tag,
         [FromQuery] int days = 30)
     {
         var cutoffDate = DateTime.UtcNow.Date.AddDays(-days);
         
-        var history = await _context.PriceHistory
-            .Where(p => p.ItemTag == tag && p.Date >= cutoffDate)
-            .OrderByDescending(p => p.Date)
+        var history = await _context.AveragePrices
+            .Where(p => p.ItemTag == tag && 
+                       p.Timestamp >= cutoffDate &&
+                       p.Granularity == PriceGranularity.Daily)
+            .OrderByDescending(p => p.Timestamp)
             .ToListAsync();
 
         if (history.Count == 0)

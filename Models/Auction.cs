@@ -109,6 +109,22 @@ public class Auction
     public string? FlatenedNBTJson { get; set; }
 
     /// <summary>
+    /// Foreign key to NbtData table (stores full compressed NBT).
+    /// </summary>
+    public int? NbtDataId { get; set; }
+
+    /// <summary>
+    /// Navigation property to full NBT data.
+    /// </summary>
+    [ForeignKey("NbtDataId")]
+    public NbtData? NbtData { get; set; }
+
+    /// <summary>
+    /// Important NBT key-value pairs extracted for fast filtering.
+    /// </summary>
+    public List<NBTLookup> NBTLookups { get; set; } = new();
+
+    /// <summary>
     /// When this auction was first fetched from the API.
     /// </summary>
     public DateTime FetchedAt { get; set; } = DateTime.UtcNow;
@@ -129,4 +145,11 @@ public class Auction
     /// </summary>
     [MaxLength(500)]
     public string? Texture { get; set; }
+
+    /// <summary>
+    /// Temporary storage for raw NBT bytes (not saved to database).
+    /// Used by FlipperService to create NbtData and NBTLookups after auction is saved.
+    /// </summary>
+    [NotMapped]
+    public string? RawNbtBytes { get; set; }
 }

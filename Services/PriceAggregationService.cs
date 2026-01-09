@@ -5,14 +5,14 @@ using SkyFlipperSolo.Models;
 namespace SkyFlipperSolo.Services;
 
 /// <summary>
-/// Background service that aggregates daily price statistics from sold auctions.
-/// Runs every hour to populate ItemPriceHistory table.
+/// Background service that aggregates price statistics from sold auctions.
+/// Supports both hourly (7-day retention) and daily (indefinite) aggregation.
 /// </summary>
 public class PriceAggregationService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PriceAggregationService> _logger;
-    private const int AGGREGATION_INTERVAL_HOURS = 1;
+    private readonly TimeSpan _aggregationInterval = TimeSpan.FromMinutes(30); // Check every 30min
 
     public PriceAggregationService(
         IServiceScopeFactory scopeFactory,
@@ -24,110 +24,261 @@ public class PriceAggregationService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("PriceAggregationService starting...");
+        _logger.LogInformation("PriceAggregationService starting (hourly + daily mode)...");
 
-        // Wait a bit before starting to let the system collect some data
-        await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+        // Wait for initial data collection
+        await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await AggregatePrices(stoppingToken);
+                // Aggregate last hour
+                await AggregateHourlyPrices(stoppingToken);
+
+                // Once per day at midnight UTC, aggregate daily and cleanup
+                if (DateTime.UtcNow.Hour == 0)
+                {
+                    await AggregateDailyPrices(stoppingToken);
+                    await CleanupOldHourlyData(stoppingToken);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "Error aggregating prices");
             }
 
-            await Task.Delay(TimeSpan.FromHours(AGGREGATION_INTERVAL_HOURS), stoppingToken);
+            await Task.Delay(_aggregationInterval, stoppingToken);
         }
 
         _logger.LogInformation("PriceAggregationService stopped");
     }
 
-    private async Task AggregatePrices(CancellationToken stoppingToken)
+    /// <summary>
+    /// Aggregates sold auctions from the previous hour into hourly price records.
+    /// </summary>
+    private async Task AggregateHourlyPrices(CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var today = DateTime.UtcNow.Date;
-        var yesterday = today.AddDays(-1);
+        var now = DateTime.UtcNow;
+        var currentHour = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc);
+        var previousHour = currentHour.AddHours(-1);
 
-        // Check if we've already aggregated for today
-        var existingToday = await dbContext.PriceHistory
-            .AnyAsync(p => p.Date == today, stoppingToken);
+        _logger.LogDebug("Aggregating hourly prices for {Hour}", previousHour);
 
-        if (existingToday)
+        // Check if we've already aggregated this hour
+        var existing = await dbContext.AveragePrices
+            .AnyAsync(p => p.Timestamp == previousHour && p.Granularity == PriceGranularity.Hourly, stoppingToken);
+
+        if (existing)
         {
-            _logger.LogDebug("Price aggregation already done for today");
+            _logger.LogDebug("Hourly aggregation already done for {Hour}", previousHour);
             return;
         }
 
-        // Get all sold auctions from the last 24 hours
-        var cutoffTime = DateTime.UtcNow.AddHours(-24);
+        // Get sold auctions from the previous hour
         var soldAuctions = await dbContext.Auctions
-            .Where(a => a.Status == AuctionStatus.SOLD && 
-                       a.SoldPrice != null &&
-                       a.End >= cutoffTime)
-            .Select(a => new { a.Tag, a.SoldPrice, a.Bin })
+            .Where(a => a.Status == AuctionStatus.SOLD &&
+                       a.SoldPrice.HasValue &&
+                       a.End >= previousHour &&
+                       a.End < currentHour)
+            .Select(a => new { a.Tag, a.SoldPrice })
             .ToListAsync(stoppingToken);
 
         if (soldAuctions.Count == 0)
         {
-            _logger.LogInformation("No sold auctions in last 24h, skipping aggregation");
+            _logger.LogDebug("No sold auctions for hour {Hour}", previousHour);
             return;
         }
 
         // Group by tag and calculate statistics
-        var priceHistory = soldAuctions
+        var aggregates = soldAuctions
             .GroupBy(a => a.Tag)
-            .Select(g => new ItemPriceHistory
+            .Select(g => new
             {
-                ItemTag = g.Key,
-                Date = today,
-                MedianPrice = CalculateMedian(g.Select(a => a.SoldPrice!.Value)),
-                AveragePrice = (long)g.Average(a => a.SoldPrice!.Value),
-                LowestBIN = g.Where(a => a.Bin).Any() 
-                    ? g.Where(a => a.Bin).Min(a => a.SoldPrice!.Value)
-                    : g.Min(a => a.SoldPrice!.Value),
-                TotalSales = g.Count()
+                Tag = g.Key,
+                Prices = g.Select(a => (double)a.SoldPrice!.Value).ToList()
             })
             .ToList();
 
-        // Save to database
-        foreach (var history in priceHistory)
+        await SavePriceAggregates(dbContext, aggregates, previousHour, 
+            PriceGranularity.Hourly, stoppingToken);
+
+        _logger.LogInformation("⏰ Aggregated hourly prices for {Hour}: {Count} items, {Sales} sales",
+            previousHour, aggregates.Count, soldAuctions.Count);
+    }
+
+    /// <summary>
+    /// Aggregates yesterday's hourly data into daily price records.
+    /// Runs once per day at midnight UTC.
+    /// </summary>
+    private async Task AggregateDailyPrices(CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var yesterday = DateTime.UtcNow.Date.AddDays(-1);
+        var today = DateTime.UtcNow.Date;
+
+        _logger.LogInformation("Aggregating daily prices for {Date}", yesterday);
+
+        // Get all hourly aggregates from yesterday
+        var hourlyAggregates = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.Hourly &&
+                       p.Timestamp >= yesterday &&
+                       p.Timestamp < today)
+            .GroupBy(p => p.ItemTag)
+            .Select(g => new
+            {
+                Tag = g.Key,
+                Min = g.Min(p => p.Min),
+                Max = g.Max(p => p.Max),
+                Medians = g.Select(p => p.Median).ToList(),
+                TotalVolume = g.Sum(p => p.Volume)
+            })
+            .ToListAsync(stoppingToken);
+
+        if (hourlyAggregates.Count == 0)
         {
-            // Use upsert to handle duplicates
-            var existing = await dbContext.PriceHistory
-                .FirstOrDefaultAsync(p => p.ItemTag == history.ItemTag && p.Date == today, stoppingToken);
+            _logger.LogInformation("No hourly data to aggregate for {Date}", yesterday);
+            return;
+        }
+
+        foreach (var item in hourlyAggregates)
+        {
+            if (item.TotalVolume == 0) continue;
+
+            var dailyAggregate = new AveragePrice
+            {
+                ItemTag = item.Tag,
+                Timestamp = yesterday,
+                Granularity = PriceGranularity.Daily,
+                Min = item.Min,
+                Max = item.Max,
+                Avg = item.Medians.Average(),
+                Median = CalculateMedian(item.Medians.OrderBy(m => m)),
+                Volume = item.TotalVolume
+            };
+
+            var existing = await dbContext.AveragePrices
+                .FirstOrDefaultAsync(p => p.ItemTag == item.Tag &&
+                                         p.Timestamp == yesterday &&
+                                         p.Granularity == PriceGranularity.Daily,
+                    stoppingToken);
 
             if (existing != null)
             {
-                existing.MedianPrice = history.MedianPrice;
-                existing.AveragePrice = history.AveragePrice;
-                existing.LowestBIN = history.LowestBIN;
-                existing.TotalSales = history.TotalSales;
+                existing.Min = dailyAggregate.Min;
+                existing.Max = dailyAggregate.Max;
+                existing.Avg = dailyAggregate.Avg;
+                existing.Median = dailyAggregate.Median;
+                existing.Volume = dailyAggregate.Volume;
             }
             else
             {
-                dbContext.PriceHistory.Add(history);
+                dbContext.AveragePrices.Add(dailyAggregate);
             }
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
-        _logger.LogInformation("📊 Aggregated prices for {Count} items (total {Sales} sales)", 
-            priceHistory.Count, soldAuctions.Count);
+        _logger.LogInformation("📅 Created {Count} daily aggregates for {Date}",
+            hourlyAggregates.Count, yesterday);
     }
 
-    private long CalculateMedian(IEnumerable<long> prices)
+    /// <summary>
+    /// Deletes hourly price data older than 7 days.
+    /// Runs once per day at midnight UTC.
+    /// </summary>
+    private async Task CleanupOldHourlyData(CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var oldHourly = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.Hourly && p.Timestamp < cutoff)
+            .ToListAsync(stoppingToken);
+
+        if (oldHourly.Count > 0)
+        {
+            dbContext.AveragePrices.RemoveRange(oldHourly);
+            await dbContext.SaveChangesAsync(stoppingToken);
+
+            _logger.LogInformation("🗑️ Cleaned up {Count} old hourly records (older than {Cutoff})",
+                oldHourly.Count, cutoff);
+        }
+    }
+
+    /// <summary>
+    /// Saves price aggregates to database with upsert logic.
+    /// </summary>
+    private async Task SavePriceAggregates<T>(
+        AppDbContext dbContext,
+        List<T> aggregates,
+        DateTime timestamp,
+        PriceGranularity granularity,
+        CancellationToken stoppingToken) where T : class
+    {
+        foreach (var item in aggregates)
+        {
+            // Use reflection to get Tag and Prices properties
+            var tagProp = item.GetType().GetProperty("Tag");
+            var pricesProp = item.GetType().GetProperty("Prices");
+            
+            if (tagProp == null || pricesProp == null) continue;
+            
+            var tag = tagProp.GetValue(item) as string;
+            var prices = pricesProp.GetValue(item) as List<double>;
+            
+            if (string.IsNullOrEmpty(tag) || prices == null || prices.Count == 0) continue;
+
+            var sorted = prices.OrderBy(p => p).ToList();
+
+            var avgPrice = new AveragePrice
+            {
+                ItemTag = tag,
+                Timestamp = timestamp,
+                Granularity = granularity,
+                Min = sorted.First(),
+                Max = sorted.Last(),
+                Avg = sorted.Average(),
+                Median = CalculateMedian(sorted),
+                Volume = sorted.Count
+            };
+
+            var existing = await dbContext.AveragePrices
+                .FirstOrDefaultAsync(p => p.ItemTag == tag &&
+                                         p.Timestamp == timestamp &&
+                                         p.Granularity == granularity,
+                    stoppingToken);
+
+            if (existing != null)
+            {
+                existing.Min = avgPrice.Min;
+                existing.Max = avgPrice.Max;
+                existing.Avg = avgPrice.Avg;
+                existing.Median = avgPrice.Median;
+                existing.Volume = avgPrice.Volume;
+            }
+            else
+            {
+                dbContext.AveragePrices.Add(avgPrice);
+            }
+        }
+
+        await dbContext.SaveChangesAsync(stoppingToken);
+    }
+
+    private double CalculateMedian(IEnumerable<double> prices)
     {
         var sorted = prices.OrderBy(p => p).ToList();
         if (sorted.Count == 0) return 0;
 
         int mid = sorted.Count / 2;
         if (sorted.Count % 2 == 0)
-            return (sorted[mid - 1] + sorted[mid]) / 2;
+            return (sorted[mid - 1] + sorted[mid]) / 2.0;
         else
             return sorted[mid];
     }

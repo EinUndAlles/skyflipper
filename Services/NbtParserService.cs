@@ -56,6 +56,9 @@ public class NbtParserService
         // Parse NBT data
         try
         {
+            // Store raw NBT bytes for later NbtData/NBTLookup creation
+            auction.RawNbtBytes = hypixelAuction.ItemBytes;
+            
             ParseNbtData(auction, hypixelAuction.ItemBytes);
         }
         catch (Exception ex)
@@ -361,6 +364,167 @@ public class NbtParserService
                     }
                 }
             }
+        }
+    }
+
+
+    /// <summary>
+    /// Creates NbtData from NBT compound for storage in database.
+    /// </summary>
+    public NbtData? CreateNbtData(NbtCompound extraTag)
+    {
+        try
+        {
+            var nbtFile = new NbtFile(extraTag);
+            using var ms = new MemoryStream();
+            nbtFile.SaveToStream(ms, NbtCompression.None); // No compression (NBT format already efficient)
+            return new NbtData { Data = ms.ToArray() };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create NbtData");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Extracts item count from NBT (important for stacked items).
+    /// </summary>
+    private int GetItemCount(NbtCompound root)
+    {
+        // New format (1.20.5+)
+        if (root.TryGet("count", out NbtTag? countTag))
+        {
+            if (countTag is NbtByte countByte)
+                return countByte.ByteValue;
+            if (countTag is NbtInt countInt)
+                return countInt.IntValue;
+        }
+        
+        // Old format
+        if (root.TryGet("Count", out countTag))
+        {
+            if (countTag is NbtByte countByteOld)
+                return countByteOld.ByteValue;
+            if (countTag is NbtInt countIntOld)
+                return countIntOld.IntValue;
+        }
+        
+        return 1; // Default to 1
+    }
+
+    /// <summary>
+    /// Creates indexed NBT lookup entries for important attributes.
+    /// </summary>
+    public List<NBTLookup> CreateLookup(NbtCompound extraTag, int auctionId)
+    {
+        var lookups = new List<NBTLookup>();
+
+        // Numeric keys to extract
+        var numericKeys = new[]
+        {
+            "dungeon_item_level",      // Stars
+            "upgrade_level",            // Alternative stars field
+            "rarity_upgrades",          // Recombobulator
+            "hot_potato_count",         // Hot potato books
+            "exp",                      // Pet exp
+            "candyUsed",                // Pet candy
+            "winning_bid",              // Midas price
+            "art_of_war_count",         // Art of war
+            "farming_for_dummies_count"
+        };
+
+        foreach (var key in numericKeys)
+        {
+            if (extraTag.TryGet(key, out NbtTag? tag))
+            {
+                long? value = tag switch
+                {
+                    NbtInt i => i.IntValue,
+                    NbtLong l => l.LongValue,
+                    NbtShort s => s.ShortValue,
+                    NbtByte b => b.ByteValue,
+                    _ => null
+                };
+
+                if (value.HasValue)
+                {
+                    lookups.Add(new NBTLookup
+                    {
+                        AuctionId = auctionId,
+                        Key = key,
+                        ValueNumeric = value.Value
+                    });
+                }
+            }
+        }
+
+        // String keys to extract
+        var stringKeys = new[]
+        {
+            "skin",          // Pet skins
+            "heldItem",      // Pet held items
+            "ability_scroll" // Ability scrolls
+        };
+
+        foreach (var key in stringKeys)
+        {
+            if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtString strTag)
+            {
+                lookups.Add(new NBTLookup
+                {
+                    AuctionId = auctionId,
+                    Key = key,
+                    ValueString = strTag.StringValue
+                });
+            }
+        }
+
+        // Extract gem slots
+        if (extraTag.TryGet("gems", out NbtTag? gemsTag) && gemsTag is NbtCompound gems)
+        {
+            foreach (var gem in gems)
+            {
+                if (gem is NbtString gemStr)
+                {
+                    lookups.Add(new NBTLookup
+                    {
+                        AuctionId = auctionId,
+                        Key = gem.Name,
+                        ValueString = gemStr.StringValue
+                    });
+                }
+            }
+        }
+
+        return lookups;
+    }
+
+    /// <summary>
+    /// Public helper method to extract ExtraAttributes compound from raw NBT bytes.
+    /// Used by FlipperService to create NbtData and NBTLookups after auction is saved.
+    /// </summary>
+    public NbtCompound? GetExtraTagFromBytes(string? itemBytes)
+    {
+        if (string.IsNullOrEmpty(itemBytes)) return null;
+
+        try
+        {
+            var bytes = Convert.FromBase64String(itemBytes);
+            var nbtFile = ParseNbtFile(bytes);
+            if (nbtFile == null) return null;
+
+            var root = nbtFile.RootTag.Get<NbtList>("i")?.Get<NbtCompound>(0);
+            if (root == null)
+                root = nbtFile.RootTag as NbtCompound;
+            if (root == null) return null;
+
+            return GetExtraTag(root);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to extract ExtraTag from NBT bytes");
+            return null;
         }
     }
 
