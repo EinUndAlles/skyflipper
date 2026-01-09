@@ -204,6 +204,32 @@ public class FlipperService : BackgroundService
             dbContext.Auctions.AddRange(newAuctions);
             await dbContext.SaveChangesAsync(stoppingToken);
 
+            // Step 2.5: Save bids for auctions
+            var bidBatch = new List<Bid>();
+            foreach (var auction in newAuctions)
+            {
+                var hypixelAuction = batch.FirstOrDefault(h => h.Uuid.Replace("-", "") == auction.Uuid);
+                if (hypixelAuction?.Bids != null && hypixelAuction.Bids.Count > 0)
+                {
+                    foreach (var hypixelBid in hypixelAuction.Bids)
+                    {
+                        bidBatch.Add(new Bid
+                        {
+                            AuctionId = auction.Id,
+                            BidderId = hypixelBid.Bidder.Replace("-", ""),
+                            Amount = hypixelBid.Amount,
+                            Timestamp = hypixelBid.Timestamp  // Use computed property
+                        });
+                    }
+                }
+            }
+
+            if (bidBatch.Count > 0)
+            {
+                dbContext.Bids.AddRange(bidBatch);
+                await dbContext.SaveChangesAsync(stoppingToken);
+            }
+
             // Step 3: Create NBTLookups (requires auction IDs from database)
             var lookupBatch = new List<NBTLookup>();
             foreach (var auction in newAuctions)
@@ -224,16 +250,17 @@ public class FlipperService : BackgroundService
                 dbContext.NBTLookups.AddRange(lookupBatch);
                 await dbContext.SaveChangesAsync(stoppingToken);
                 
-                _logger.LogInformation("✅ Saved {Count} auctions with {NbtCount} NBT data, {LookupCount} lookups (skipped {Skipped})", 
+                _logger.LogInformation("✅ Saved {Count} auctions with {NbtCount} NBT data, {LookupCount} lookups, {BidCount} bids (skipped {Skipped})", 
                     newAuctions.Count, 
                     newAuctions.Count(a => a.NbtData != null),
                     lookupBatch.Count,
+                    bidBatch.Count,
                     skipped);
             }
             else
             {
-                _logger.LogInformation("✅ Saved {Count} auctions (skipped {Skipped} existing)", 
-                    newAuctions.Count, skipped);
+                _logger.LogInformation("✅ Saved {Count} auctions, {BidCount} bids (skipped {Skipped} existing)", 
+                    newAuctions.Count, bidBatch.Count, skipped);
             }
         }
 

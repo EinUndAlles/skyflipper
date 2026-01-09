@@ -147,6 +147,11 @@ public class Auction
     public string? Texture { get; set; }
 
     /// <summary>
+    /// Bids placed on this auction.
+    /// </summary>
+    public List<Bid> Bids { get; set; } = new();
+
+    /// <summary>
     /// Temporary storage for raw NBT bytes (not saved to database).
     /// Used by FlipperService to create NbtData and NBTLookups after auction is saved.
     /// </summary>
