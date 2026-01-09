@@ -12,11 +12,13 @@ public class NbtParserService
 {
     private readonly ILogger<NbtParserService> _logger;
     private readonly NBTKeyService _nbtKeyService;
+    private readonly NBTValueService _nbtValueService;
 
-    public NbtParserService(ILogger<NbtParserService> logger, NBTKeyService nbtKeyService)
+    public NbtParserService(ILogger<NbtParserService> logger, NBTKeyService nbtKeyService, NBTValueService nbtValueService)
     {
         _logger = logger;
         _nbtKeyService = nbtKeyService;
+        _nbtValueService = nbtValueService;
     }
 
     /// <summary>
@@ -469,12 +471,19 @@ public class NbtParserService
             lookups.Add(new NBTLookup { AuctionId = auctionId, KeyId = keyId, ValueNumeric = value });
         }
 
-        // Helper to add string lookup
+        // Helper to add string lookup with value deduplication
         async Task AddString(string keyName, string value)
         {
             if (string.IsNullOrEmpty(value)) return;
             var keyId = await _nbtKeyService.GetOrCreateKeyId(keyName);
-            lookups.Add(new NBTLookup { AuctionId = auctionId, KeyId = keyId, ValueString = value });
+            var valueId = await _nbtValueService.GetOrCreateValueId(keyId, value);
+            lookups.Add(new NBTLookup 
+            { 
+                AuctionId = auctionId, 
+                KeyId = keyId, 
+                ValueId = valueId,
+                ValueString = value  // Keep temporarily for migration compatibility
+            });
         }
 
         // ==== BASIC ATTRIBUTES ====

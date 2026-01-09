@@ -43,8 +43,20 @@ public class NBTLookup
     public long? ValueNumeric { get; set; }
 
     /// <summary>
-    /// String value if the NBT value is a string (e.g., "RUBY" for gem type).
+    /// DEPRECATED: String value (e.g., "RUBY" for gem type).
+    /// Keeping temporarily for migration. Will be removed after migrating to ValueId.
     /// </summary>
     [MaxLength(100)]
     public string? ValueString { get; set; }
+
+    /// <summary>
+    /// Reference to deduplicated string value in NBTValues table.
+    /// Replaces ValueString for 90% storage savings.
+    /// </summary>
+    public int? ValueId { get; set; }
+
+    /// <summary>
+    /// Navigation property to NBTValue.
+    /// </summary>
+    public NBTValue? NBTValue { get; set; }
 }

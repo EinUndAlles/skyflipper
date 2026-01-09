@@ -45,6 +45,7 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<HypixelAuction>(new Unboun
 // Add services
 builder.Services.AddSingleton<NbtParserService>();
 builder.Services.AddSingleton<NBTKeyService>(); // NBT key normalization service
+builder.Services.AddSingleton<NBTValueService>(); // NBT value deduplication service
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<FlipperService>();
 builder.Services.AddHostedService<SoldAuctionService>();

@@ -20,6 +20,10 @@ public class AppDbContext : DbContext
     public DbSet<NbtData> NbtData { get; set; }
     public DbSet<NBTLookup> NBTLookups { get; set; }
     public DbSet<NBTKey> NBTKeys { get; set; } // For key name normalization
+    public DbSet<NBTValue> NBTValues { get; set; } // For string value deduplication
+    public DbSet<Bid> Bids { get; set; }
+    public DbSet<ItemDetails> ItemDetails { get; set; }
+    public DbSet<AlternativeName> AlternativeNames { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -117,6 +121,51 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<NBTKey>(entity =>
         {
             entity.HasIndex(k => k.KeyName).IsUnique();
+        });
+
+        // NBTValue configuration
+        modelBuilder.Entity<NBTValue>(entity =>
+        {
+            // Relationship to NBTKey
+            entity.HasOne(v => v.NBTKey)
+                .WithMany()
+                .HasForeignKey(v => v.KeyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Unique constraint: same value for same key stored once
+            entity.HasIndex(v => new { v.KeyId, v.Value }).IsUnique();
+        });
+
+        // NBTLookup - add ValueId relationship
+        modelBuilder.Entity<NBTLookup>()
+            .HasOne(l => l.NBTValue)
+            .WithMany(v => v.NBTLookups)
+            .HasForeignKey(l => l.ValueId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // NEW: Composite index for ValueId queries
+        modelBuilder.Entity<NBTLookup>()
+            .HasIndex(e => new { e.KeyId, e.ValueId });
+
+        // Bid configuration
+        modelBuilder.Entity<Bid>(entity =>
+        {
+            entity.HasIndex(b => b.AuctionId);
+            entity.HasIndex(b => b.BidderId);
+            entity.HasIndex(b => b.Timestamp);
+        });
+
+        // ItemDetails configuration
+        modelBuilder.Entity<ItemDetails>(entity =>
+        {
+            entity.HasIndex(i => i.Tag).IsUnique();
+            entity.HasIndex(i => i.LastSeen);
+        });
+
+        // AlternativeName configuration
+        modelBuilder.Entity<AlternativeName>(entity =>
+        {
+            entity.HasIndex(a => a.Name);
         });
     }
 }
