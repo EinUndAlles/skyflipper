@@ -39,6 +39,7 @@ public class FlipperService : BackgroundService
         _logger.LogInformation("FlipperService starting (optimized: batch=200, retry=enabled)...");
 
         var batch = new List<Auction>(BatchSize);
+        var hypixelBatch = new List<HypixelAuction>(BatchSize);  // Keep hypixel data for bids
         var totalSaved = 0;
         var totalSkipped = 0;
         var totalRetries = 0;
@@ -52,15 +53,17 @@ public class FlipperService : BackgroundService
                     // Parse the auction
                     var auction = _nbtParser.ParseAuction(hypixelAuction);
                     batch.Add(auction);
+                    hypixelBatch.Add(hypixelAuction);  // Store parallel
 
                     // Flush when batch is full
                     if (batch.Count >= BatchSize)
                     {
-                        var (saved, skipped, retries) = await FlushBatchWithRetry(batch, stoppingToken);
+                        var (saved, skipped, retries) = await FlushBatchWithRetry(batch, hypixelBatch, stoppingToken);
                         totalSaved += saved;
                         totalSkipped += skipped;
                         totalRetries += retries;
                         batch.Clear();
+                        hypixelBatch.Clear();
 
                         // Rate limit - allow DB breathing room
                         await Task.Delay(DelayBetweenBatchesMs, stoppingToken);
@@ -81,7 +84,7 @@ public class FlipperService : BackgroundService
         // Flush remaining
         if (batch.Count > 0)
         {
-            await FlushBatchWithRetry(batch, CancellationToken.None);
+            await FlushBatchWithRetry(batch, hypixelBatch, CancellationToken.None);
         }
     }
 
@@ -90,7 +93,8 @@ public class FlipperService : BackgroundService
     /// If a full batch fails, splits it in half and retries each half separately.
     /// </summary>
     private async Task<(int saved, int skipped, int retries)> FlushBatchWithRetry(
-        List<Auction> batch, 
+        List<Auction> batch,
+        List<HypixelAuction> hypixelBatch,
         CancellationToken stoppingToken)
     {
         var retryCount = 0;
@@ -109,7 +113,7 @@ public class FlipperService : BackgroundService
                     retryCount++;
                 }
 
-                var (saved, skipped) = await FlushBatch(batch, stoppingToken);
+                var (saved, skipped) = await FlushBatch(batch, hypixelBatch, stoppingToken);
                 return (saved, skipped, retryCount);
             }
             catch (Exception ex) when (ex is not OperationCanceledException && attempt < MaxRetries)
@@ -125,7 +129,7 @@ public class FlipperService : BackgroundService
                 
                 if (batch.Count > 1)
                 {
-                    return await SplitAndRetry(batch, stoppingToken, retryCount);
+                    return await SplitAndRetry(batch, hypixelBatch, stoppingToken, retryCount);
                 }
                 else
                 {
@@ -145,18 +149,21 @@ public class FlipperService : BackgroundService
     /// </summary>
     private async Task<(int saved, int skipped, int retries)> SplitAndRetry(
         List<Auction> batch,
+        List<HypixelAuction> hypixelBatch,
         CancellationToken stoppingToken,
         int currentRetries)
     {
         var midpoint = batch.Count / 2;
         var batch1 = batch.Take(midpoint).ToList();
         var batch2 = batch.Skip(midpoint).ToList();
+        var hBatch1 = hypixelBatch.Take(midpoint).ToList();
+        var hBatch2 = hypixelBatch.Skip(midpoint).ToList();
 
         _logger.LogInformation("Splitting batch of {Total} into {Size1} + {Size2}", 
             batch.Count, batch1.Count, batch2.Count);
 
-        var (saved1, skipped1, retries1) = await FlushBatchWithRetry(batch1, stoppingToken);
-        var (saved2, skipped2, retries2) = await FlushBatchWithRetry(batch2, stoppingToken);
+        var (saved1, skipped1, retries1) = await FlushBatchWithRetry(batch1, hBatch1, stoppingToken);
+        var (saved2, skipped2, retries2) = await FlushBatchWithRetry(batch2, hBatch2, stoppingToken);
 
         return (saved1 + saved2, skipped1 + skipped2, currentRetries + retries1 + retries2);
     }
@@ -164,7 +171,10 @@ public class FlipperService : BackgroundService
     /// <summary>
     /// Core batch save logic with NBT data and lookups.
     /// </summary>
-    private async Task<(int saved, int skipped)> FlushBatch(List<Auction> batch, CancellationToken stoppingToken)
+    private async Task<(int saved, int skipped)> FlushBatch(
+        List<Auction> batch,
+        List<HypixelAuction> hypixelBatch,
+        CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -205,20 +215,22 @@ public class FlipperService : BackgroundService
             await dbContext.SaveChangesAsync(stoppingToken);
 
             // Step 2.5: Save bids for auctions
-            var bidBatch = new List<Bid>();
-            foreach (var auction in newAuctions)
+            var bidBatch = new List<BidRecord>();
+            for (int i = 0; i < newAuctions.Count; i++)
             {
-                var hypixelAuction = batch.FirstOrDefault(h => h.Uuid.Replace("-", "") == auction.Uuid);
+                var auction = newAuctions[i];
+                var hypixelAuction = hypixelBatch[i];  // Use parallel batch
+                
                 if (hypixelAuction?.Bids != null && hypixelAuction.Bids.Count > 0)
                 {
-                    foreach (var hypixelBid in hypixelAuction.Bids)
+                    foreach (HypixelBid hypixelBid in hypixelAuction.Bids)
                     {
-                        bidBatch.Add(new Bid
+                        bidBatch.Add(new BidRecord
                         {
                             AuctionId = auction.Id,
                             BidderId = hypixelBid.Bidder.Replace("-", ""),
                             Amount = hypixelBid.Amount,
-                            Timestamp = hypixelBid.Timestamp  // Use computed property
+                            Timestamp = hypixelBid.Timestamp
                         });
                     }
                 }
@@ -226,7 +238,7 @@ public class FlipperService : BackgroundService
 
             if (bidBatch.Count > 0)
             {
-                dbContext.Bids.AddRange(bidBatch);
+                dbContext.BidRecords.AddRange(bidBatch);
                 await dbContext.SaveChangesAsync(stoppingToken);
             }
 

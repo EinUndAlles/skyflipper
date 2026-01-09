@@ -149,7 +149,7 @@ public class Auction
     /// <summary>
     /// Bids placed on this auction.
     /// </summary>
-    public List<Bid> Bids { get; set; } = new();
+    public List<BidRecord> Bids { get; set; } = new();
 
     /// <summary>
     /// Temporary storage for raw NBT bytes (not saved to database).

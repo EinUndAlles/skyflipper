@@ -21,7 +21,7 @@ public class AppDbContext : DbContext
     public DbSet<NBTLookup> NBTLookups { get; set; }
     public DbSet<NBTKey> NBTKeys { get; set; } // For key name normalization
     public DbSet<NBTValue> NBTValues { get; set; } // For string value deduplication
-    public DbSet<Bid> Bids { get; set; }
+    public DbSet<BidRecord> BidRecords { get; set; }
     public DbSet<ItemDetails> ItemDetails { get; set; }
     public DbSet<AlternativeName> AlternativeNames { get; set; }
 
@@ -147,8 +147,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<NBTLookup>()
             .HasIndex(e => new { e.KeyId, e.ValueId });
 
-        // Bid configuration
-        modelBuilder.Entity<Bid>(entity =>
+        // BidRecord configuration
+        modelBuilder.Entity<BidRecord>(entity =>
         {
             entity.HasIndex(b => b.AuctionId);
             entity.HasIndex(b => b.BidderId);

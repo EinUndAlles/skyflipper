@@ -3,23 +3,23 @@ using System.ComponentModel.DataAnnotations;
 namespace SkyFlipperSolo.Models;
 
 /// <summary>
-/// Represents a bid on an auction.
+/// Represents a bid on an auction (database record).
 /// Tracks bid history for price discovery and sniper behavior analysis.
 /// Based on Coflnet.Sky.Commands.MC.Bid pattern.
 /// </summary>
-public class Bid
+public class BidRecord
 {
     [Key]
     public int Id { get; set; }
 
     /// <summary>
-    /// Foreign key to the auction this bid belongs to.
+    /// Foreign key to auction this bid belongs to.
     /// </summary>
     public int AuctionId { get; set; }
     public Auction Auction { get; set; } = null!;
 
     /// <summary>
-    /// UUID of the bidder (without hyphens).
+    /// UUID of bidder (without hyphens).
     /// </summary>
     [MaxLength(32)]
     [Required]
@@ -31,7 +31,7 @@ public class Bid
     public long Amount { get; set; }
 
     /// <summary>
-    /// When the bid was placed.
+    /// When bid was placed.
     /// </summary>
     public DateTime Timestamp { get; set; }
 }

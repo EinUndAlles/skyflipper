@@ -19,7 +19,7 @@ namespace SkyFlipperSolo.Migrations
                 nullable: true);
 
             migrationBuilder.CreateTable(
-                name: "Bids",
+                name: "BidRecords",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
@@ -31,9 +31,9 @@ namespace SkyFlipperSolo.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Bids", x => x.Id);
+                    table.PrimaryKey("PK_BidRecords", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_Bids_Auctions_AuctionId",
+                        name: "FK_BidRecords_Auctions_AuctionId",
                         column: x => x.AuctionId,
                         principalTable: "Auctions",
                         principalColumn: "Id",
@@ -121,18 +121,18 @@ namespace SkyFlipperSolo.Migrations
                 column: "Name");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Bids_AuctionId",
-                table: "Bids",
+                name: "IX_BidRecords_AuctionId",
+                table: "BidRecords",
                 column: "AuctionId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Bids_BidderId",
-                table: "Bids",
+                name: "IX_BidRecords_BidderId",
+                table: "BidRecords",
                 column: "BidderId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Bids_Timestamp",
-                table: "Bids",
+                name: "IX_BidRecords_Timestamp",
+                table: "BidRecords",
                 column: "Timestamp");
 
             migrationBuilder.CreateIndex(
@@ -172,7 +172,7 @@ namespace SkyFlipperSolo.Migrations
                 name: "AlternativeNames");
 
             migrationBuilder.DropTable(
-                name: "Bids");
+                name: "BidRecords");
 
             migrationBuilder.DropTable(
                 name: "NBTValues");

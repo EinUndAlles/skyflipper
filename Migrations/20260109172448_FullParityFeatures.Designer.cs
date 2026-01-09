@@ -12,7 +12,7 @@ using SkyFlipperSolo.Data;
 namespace SkyFlipperSolo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260109042104_FullParityFeatures")]
+    [Migration("20260109172448_FullParityFeatures")]
     partial class FullParityFeatures
     {
         /// <inheritdoc />
@@ -202,7 +202,7 @@ namespace SkyFlipperSolo.Migrations
                     b.ToTable("AveragePrices");
                 });
 
-            modelBuilder.Entity("SkyFlipperSolo.Models.Bid", b =>
+            modelBuilder.Entity("SkyFlipperSolo.Models.BidRecord", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -232,7 +232,7 @@ namespace SkyFlipperSolo.Migrations
 
                     b.HasIndex("Timestamp");
 
-                    b.ToTable("Bids");
+                    b.ToTable("BidRecords");
                 });
 
             modelBuilder.Entity("SkyFlipperSolo.Models.Enchantment", b =>
@@ -540,10 +540,10 @@ namespace SkyFlipperSolo.Migrations
                     b.Navigation("NbtData");
                 });
 
-            modelBuilder.Entity("SkyFlipperSolo.Models.Bid", b =>
+            modelBuilder.Entity("SkyFlipperSolo.Models.BidRecord", b =>
                 {
                     b.HasOne("SkyFlipperSolo.Models.Auction", "Auction")
-                        .WithMany()
+                        .WithMany("Bids")
                         .HasForeignKey("AuctionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -611,6 +611,8 @@ namespace SkyFlipperSolo.Migrations
 
             modelBuilder.Entity("SkyFlipperSolo.Models.Auction", b =>
                 {
+                    b.Navigation("Bids");
+
                     b.Navigation("Enchantments");
 
                     b.Navigation("NBTLookups");
