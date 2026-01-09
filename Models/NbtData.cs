@@ -12,8 +12,9 @@ public class NbtData
     public int Id { get; set; }
 
     /// <summary>
-    /// Compressed NBT byte array (using NBT format, no additional compression needed)
+    /// Compressed NBT data as byte array.
+    /// Increased from 1000 to 10000 to handle complex items (many enchants/gems/stars).
     /// </summary>
-    [MaxLength(1000)]
+    [MaxLength(10000)]
     public byte[] Data { get; set; } = Array.Empty<byte>();
 }

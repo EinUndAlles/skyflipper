@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<FlipOpportunity> FlipOpportunities { get; set; }
     public DbSet<NbtData> NbtData { get; set; }
     public DbSet<NBTLookup> NBTLookups { get; set; }
+    public DbSet<NBTKey> NBTKeys { get; set; } // For key name normalization
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,12 +95,28 @@ public class AppDbContext : DbContext
         // NBTLookup configuration
         modelBuilder.Entity<NBTLookup>(entity =>
         {
-            // Composite index for filtering by key and numeric value (e.g., stars)
+            // Relationship to NBTKey
+            entity.HasOne(l => l.NBTKey)
+                .WithMany(k => k.NBTLookups)
+                .HasForeignKey(l => l.KeyId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // NEW: Composite indexes for KeyId-based queries
+            entity.HasIndex(e => new { e.KeyId, e.ValueNumeric });
+            entity.HasIndex(e => new { e.KeyId, e.ValueString });
+
+            // OLD: Keep for migration compatibility (will be removed after migration)
             entity.HasIndex(e => new { e.Key, e.ValueNumeric });
-            // Composite index for filtering by key and string value (e.g., pet skins)
             entity.HasIndex(e => new { e.Key, e.ValueString });
+
             // Index on auction for efficient joins
             entity.HasIndex(e => e.AuctionId);
+        });
+
+        // NBTKey configuration
+        modelBuilder.Entity<NBTKey>(entity =>
+        {
+            entity.HasIndex(k => k.KeyName).IsUnique();
         });
     }
 }

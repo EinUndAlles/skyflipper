@@ -14,32 +14,37 @@ public class NBTLookup
     public int Id { get; set; }
 
     /// <summary>
-    /// Foreign key to the auction.
+    /// Foreign key to the auction this lookup belongs to.
     /// </summary>
     public int AuctionId { get; set; }
+    public Auction Auction { get; set; } = null!;
 
     /// <summary>
-    /// The NBT key (e.g., "dungeon_item_level", "heldItem", "skin")
+    /// The NBT key ID (normalized). Replaces Key for storage efficiency.
+    /// E.g., KeyId=42 refers to "dungeon_item_level" in NBTKeys table.
+    /// </summary>
+    public short? KeyId { get; set; }
+    
+    /// <summary>
+    /// Navigation property to NBTKey.
+    /// </summary>
+    public NBTKey? NBTKey { get; set; }
+
+    /// <summary>
+    /// DEPRECATED: The NBT key name (e.g., "dungeon_item_level").
+    /// Keeping temporarily for migration. Will be removed after migrating to KeyId.
     /// </summary>
     [MaxLength(50)]
-    public string Key { get; set; } = string.Empty;
+    public string? Key { get; set; }
 
     /// <summary>
-    /// Numeric value for numbers (stars, levels, counts, etc.)
-    /// Null if the value is a string.
+    /// Numeric value if the NBT value is a number.
     /// </summary>
-    public long? ValueNumeric { get; set; }
+    public double? ValueNumeric { get; set; }
 
     /// <summary>
-    /// String value for text (skins, items, scrolls, etc.)
-    /// Null if the value is numeric.
+    /// String value if the NBT value is a string (e.g., "RUBY" for gem type).
     /// </summary>
     [MaxLength(100)]
     public string? ValueString { get; set; }
-
-    /// <summary>
-    /// Navigation property to auction.
-    /// </summary>
-    [ForeignKey("AuctionId")]
-    public Auction? Auction { get; set; }
 }

@@ -213,7 +213,7 @@ public class FlipperService : BackgroundService
                 var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
                 if (extraTag != null)
                 {
-                    var lookups = _nbtParser.CreateLookup(extraTag, auction.Id);
+                    var lookups = await _nbtParser.CreateLookupAsync(extraTag, auction.Id);
                     lookupBatch.AddRange(lookups);
                 }
             }

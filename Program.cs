@@ -44,6 +44,7 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<HypixelAuction>(new Unboun
 
 // Add services
 builder.Services.AddSingleton<NbtParserService>();
+builder.Services.AddSingleton<NBTKeyService>(); // NBT key normalization service
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<FlipperService>();
 builder.Services.AddHostedService<SoldAuctionService>();
@@ -72,7 +73,7 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Time = DateTime
     .WithName("HealthCheck")
     .WithOpenApi();
 
-// Auto-migrate database in development
+// Auto-migrate database and seed NBT keys in development
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -80,6 +81,10 @@ using (var scope = app.Services.CreateScope())
     {
         await dbContext.Database.MigrateAsync();
     }
+    
+    // Seed common NBT keys
+    var nbtKeyService = scope.ServiceProvider.GetRequiredService<NBTKeyService>();
+    await nbtKeyService.SeedCommonKeys();
 }
 
 app.Run();

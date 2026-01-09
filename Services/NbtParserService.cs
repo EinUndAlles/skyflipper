@@ -11,10 +11,12 @@ namespace SkyFlipperSolo.Services;
 public class NbtParserService
 {
     private readonly ILogger<NbtParserService> _logger;
+    private readonly NBTKeyService _nbtKeyService;
 
-    public NbtParserService(ILogger<NbtParserService> logger)
+    public NbtParserService(ILogger<NbtParserService> logger, NBTKeyService nbtKeyService)
     {
         _logger = logger;
+        _nbtKeyService = nbtKeyService;
     }
 
     /// <summary>
@@ -118,23 +120,36 @@ public class NbtParserService
         // Extract enchantments
         auction.Enchantments = ParseEnchantments(extraTag);
 
-        // Extract reforge
-        if (extraTag.TryGet("modifier", out NbtTag? modifierTag) && modifierTag is NbtString modifierStr)
+        // Extract reforge (for weapons/armor)
+        var reforgeStr = extraTag.Get<NbtString>("modifier")?.StringValue;
+        if (!string.IsNullOrEmpty(reforgeStr) && Enum.TryParse<Reforge>(reforgeStr, true, out var reforge))
         {
-            if (Enum.TryParse<Reforge>(modifierStr.StringValue, true, out var reforge))
-            {
-                auction.Reforge = reforge;
-            }
+            auction.Reforge = reforge;
         }
 
-        // Extract flattened NBT data (stars, gems, hot potato books, etc.)
+        // Extract anvil uses (important for value calculation)
+        if (extraTag.TryGet("anvil_uses", out NbtTag? anvilTag))
+        {
+            auction.AnvilUses = anvilTag switch
+            {
+                NbtInt i => (short)i.IntValue,
+                NbtShort s => s.ShortValue,
+                NbtByte b => (short)b.ByteValue,
+                _ => 0
+            };
+        }
+
+        // Extract flattened NBT data
         var flatNbt = FlattenNbtData(extraTag);
         if (flatNbt.Count > 0)
         {
             auction.FlatenedNBTJson = System.Text.Json.JsonSerializer.Serialize(flatNbt);
         }
 
-        // Extract item creation date
+        // Extract item count (for stacked items)
+        auction.Count = GetItemCount(root);
+
+        // Extract item creation timestamp (check both locations)
         if (extraTag.TryGet("timestamp", out NbtTag? timestampTag))
         {
             if (timestampTag is NbtLong timestampLong)
@@ -146,6 +161,11 @@ public class NbtParserService
             {
                 auction.ItemCreatedAt = DateTime.SpecifyKind(parsedDate, DateTimeKind.Utc);
             }
+        }
+        // Also check root-level timestamp (Coflnet reference checks both)
+        else if (root.TryGet("timestamp", out NbtTag? rootTimestamp) && rootTimestamp is NbtLong rootTs)
+        {
+            auction.ItemCreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(rootTs.LongValue).UtcDateTime;
         }
         
         // Extract Skull Texture (for pets/talismans/skulls)
@@ -414,27 +434,35 @@ public class NbtParserService
     }
 
     /// <summary>
-    /// Creates indexed NBT lookup entries for important attributes.
+    /// Creates indexed NBT lookup entries for 60+ important attributes.
+    /// Based on Coflnet reference for comprehensive attribute extraction.
+    /// Uses NBT key normalization for storage efficiency.
     /// </summary>
-    public List<NBTLookup> CreateLookup(NbtCompound extraTag, int auctionId)
+    public async Task<List<NBTLookup>> CreateLookupAsync(NbtCompound extraTag, int auctionId)
     {
         var lookups = new List<NBTLookup>();
 
-        // Numeric keys to extract
-        var numericKeys = new[]
+        // Helper to add numeric lookup
+        async Task AddNumeric(string keyName, long value)
         {
-            "dungeon_item_level",      // Stars
-            "upgrade_level",            // Alternative stars field
-            "rarity_upgrades",          // Recombobulator
-            "hot_potato_count",         // Hot potato books
-            "exp",                      // Pet exp
-            "candyUsed",                // Pet candy
-            "winning_bid",              // Midas price
-            "art_of_war_count",         // Art of war
-            "farming_for_dummies_count"
-        };
+            var keyId = await _nbtKeyService.GetOrCreateKeyId(keyName);
+            lookups.Add(new NBTLookup { AuctionId = auctionId, KeyId = keyId, ValueNumeric = value });
+        }
 
-        foreach (var key in numericKeys)
+        // Helper to add string lookup
+        async Task AddString(string keyName, string value)
+        {
+            if (string.IsNullOrEmpty(value)) return;
+            var keyId = await _nbtKeyService.GetOrCreateKeyId(keyName);
+            lookups.Add(new NBTLookup { AuctionId = auctionId, KeyId = keyId, ValueString = value });
+        }
+
+        // ==== BASIC ATTRIBUTES ====
+        var basicNumeric = new[] { "upgrade_level", "hot_potato_count", "rarity_upgrades", 
+            "anvil_uses", "exp", "candyUsed", "art_of_war_count", "mana_pool", "breaker",
+            "farming_for_dummies_count", "winning_bid" };
+
+        foreach (var key in basicNumeric)
         {
             if (extraTag.TryGet(key, out NbtTag? tag))
             {
@@ -446,55 +474,143 @@ public class NbtParserService
                     NbtByte b => b.ByteValue,
                     _ => null
                 };
-
                 if (value.HasValue)
-                {
-                    lookups.Add(new NBTLookup
-                    {
-                        AuctionId = auctionId,
-                        Key = key,
-                        ValueNumeric = value.Value
-                    });
-                }
+                    await AddNumeric(key, value.Value);
             }
         }
 
-        // String keys to extract
-        var stringKeys = new[]
+        // ==== DUNGEON ====
+        var dungeonNumeric = new[] { "dungeon_item_level", "stars", "dungeon_skill_req", "dungeon_paper_id" };
+        foreach (var key in dungeonNumeric)
         {
-            "skin",          // Pet skins
-            "heldItem",      // Pet held items
-            "ability_scroll" // Ability scrolls
-        };
+            if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtInt intTag)
+                await AddNumeric(key, intTag.IntValue);
+        }
+
+        // ==== STRING ATTRIBUTES ====
+        var stringKeys = new[] { "skin", "heldItem", "ability_scroll", "cake_owner", 
+            "party_hat_color", "spray", "repelling_color", "captured_player", "leaderboard_player", "mob_id" };
 
         foreach (var key in stringKeys)
         {
             if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtString strTag)
+                await AddString(key, strTag.StringValue);
+        }
+
+        // ==== GEMS WITH QUALITY + UUID ====
+        if (extraTag.TryGet("gems", out NbtTag? gemsTag) && gemsTag is NbtCompound gems)
+        {
+            var slotPrefixes = new[] { "COMBAT_0", "COMBAT_1", "DEFENSIVE_0", "UNIVERSAL_0", "OFFENSIVE_0" };
+            
+            foreach (var slot in slotPrefixes)
             {
-                lookups.Add(new NBTLookup
+                if (gems.TryGet(slot, out NbtTag? slotTag))
                 {
-                    AuctionId = auctionId,
-                    Key = key,
-                    ValueString = strTag.StringValue
-                });
+                    if (slotTag is NbtString gemType)
+                    {
+                        await AddString(slot, gemType.StringValue);
+                    }
+                    else if (slotTag is NbtCompound gemData)
+                    {
+                        if (gemData.TryGet("type", out NbtTag? typeTag) && typeTag is NbtString gemTypeStr)
+                            await AddString($"{slot}_gem", gemTypeStr.StringValue);
+                        
+                        if (gemData.TryGet("quality", out NbtTag? qualityTag) && qualityTag is NbtString qualityStr)
+                            await AddString($"{slot}_quality", qualityStr.StringValue);
+                        
+                        if (gemData.TryGet("uuid", out NbtTag? uuidTag) && uuidTag is NbtString uuidStr)
+                            await AddString($"{slot}_uuid", uuidStr.StringValue);
+                    }
+                }
             }
         }
 
-        // Extract gem slots
-        if (extraTag.TryGet("gems", out NbtTag? gemsTag) && gemsTag is NbtCompound gems)
+        // ==== PET INFO UNWRAPPING ====
+        if (extraTag.TryGet("petInfo", out NbtTag? petInfoTag) && petInfoTag is NbtString petInfoStr)
         {
-            foreach (var gem in gems)
+            try
             {
-                if (gem is NbtString gemStr)
-                {
-                    lookups.Add(new NBTLookup
-                    {
-                        AuctionId = auctionId,
-                        Key = gem.Name,
-                        ValueString = gemStr.StringValue
-                    });
-                }
+                var petData = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(petInfoStr.StringValue);
+                
+                if (petData.TryGetProperty("exp", out var exp) && exp.TryGetDouble(out var expVal))
+                    await AddNumeric("pet_exp", (long)expVal);
+                
+                if (petData.TryGetProperty("tier", out var tier))
+                    await AddString("pet_tier", tier.GetString() ?? "");
+                
+                if (petData.TryGetProperty("heldItem", out var heldItem))
+                    await AddString("pet_held_item", heldItem.GetString() ?? "");
+                
+                if (petData.TryGetProperty("skin", out var skin))
+                    await AddString("pet_skin", skin.GetString() ?? "");
             }
+            catch { /* Ignore malformed pet data */ }
+        }
+
+        // ==== POTIONS ====
+        var potionKeys = new[] { "potion", "potion_type", "potion_name", "effect", "enhanced" };
+        foreach (var key in potionKeys)
+        {
+            if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtString strTag)
+                await AddString(key, strTag.StringValue);
+        }
+
+        if (extraTag.TryGet("duration", out NbtTag? durationTag) && durationTag is NbtInt durationInt)
+            await AddNumeric("duration", durationInt.IntValue);
+        
+        if (extraTag.TryGet("level", out NbtTag? levelTag) && levelTag is NbtInt levelInt)
+            await AddNumeric("level", levelInt.IntValue);
+
+        // ==== DRILLS ====
+        var drillParts = new[] { "drill_part_engine", "drill_part_fuel_tank", "drill_part_upgrade_module" };
+        foreach (var part in drillParts)
+        {
+            if (extraTag.TryGet(part, out NbtTag? tag) && tag is NbtString partStr)
+                await AddString(part, partStr.StringValue);
+        }
+
+        // ==== BACKPACKS ====
+        var backpackSizes = new[] { "small", "medium", "large", "greater", "jumbo" };
+        foreach (var size in backpackSizes)
+        {
+            var key = $"{size}_backpack_data";
+            if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtByteArray)
+                await AddNumeric(key, 1);
+        }
+
+        // ==== NECROMANCER SOULS UNWRAPPING ====
+        if (extraTag.TryGet("necromancer_souls", out NbtTag? soulsTag) && soulsTag is NbtCompound souls)
+        {
+            foreach (var soul in souls)
+            {
+                long? value = soul switch
+                {
+                    NbtInt i => i.IntValue,
+                    NbtLong l => l.LongValue,
+                    _ => null
+                };
+                if (value.HasValue)
+                    await AddNumeric($"soul_{soul.Name}", value.Value);
+            }
+        }
+
+        // ==== RUNES UNWRAPPING ====
+        if (extraTag.TryGet("runes", out NbtTag? runesTag) && runesTag is NbtCompound runes)
+        {
+            foreach (var rune in runes)
+            {
+                if (rune is NbtInt runeLevel)
+                    await AddNumeric($"RUNE_{rune.Name}", runeLevel.IntValue);
+            }
+        }
+
+        // ==== KILL/COMPLETION STATS ====
+        var statKeys = new[] { "zombie_kills", "ender_dragon_kills", "enderman_kills", 
+            "floor_completions", "master_completions" };
+        foreach (var key in statKeys)
+        {
+            if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtInt intTag)
+                await AddNumeric(key, intTag.IntValue);
         }
 
         return lookups;
