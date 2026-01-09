@@ -11,15 +11,6 @@ namespace SkyFlipperSolo.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AlterColumn<double>(
-                name: "ValueNumeric",
-                table: "NBTLookups",
-                type: "double precision",
-                nullable: true,
-                oldClrType: typeof(long),
-                oldType: "bigint",
-                oldNullable: true);
-
             migrationBuilder.AlterColumn<string>(
                 name: "Key",
                 table: "NBTLookups",
@@ -32,12 +23,6 @@ namespace SkyFlipperSolo.Migrations
 
             migrationBuilder.AddColumn<short>(
                 name: "KeyId",
-                table: "NBTLookups",
-                type: "smallint",
-                nullable: true);
-
-            migrationBuilder.AddColumn<short>(
-                name: "NBTKeyId",
                 table: "NBTLookups",
                 type: "smallint",
                 nullable: true);
@@ -56,48 +41,51 @@ namespace SkyFlipperSolo.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_NBTLookups_NBTKeyId",
+                name: "IX_NBTLookups_KeyId_ValueNumeric",
                 table: "NBTLookups",
-                column: "NBTKeyId");
+                columns: new[] { "KeyId", "ValueNumeric" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_NBTLookups_KeyId_ValueString",
+                table: "NBTLookups",
+                columns: new[] { "KeyId", "ValueString" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_NBTKeys_KeyName",
+                table: "NBTKeys",
+                column: "KeyName",
+                unique: true);
 
             migrationBuilder.AddForeignKey(
-                name: "FK_NBTLookups_NBTKeys_NBTKeyId",
+                name: "FK_NBTLookups_NBTKeys_KeyId",
                 table: "NBTLookups",
-                column: "NBTKeyId",
+                column: "KeyId",
                 principalTable: "NBTKeys",
-                principalColumn: "Id");
+                principalColumn: "Id",
+                onDelete: ReferentialAction.Restrict);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(
-                name: "FK_NBTLookups_NBTKeys_NBTKeyId",
+                name: "FK_NBTLookups_NBTKeys_KeyId",
                 table: "NBTLookups");
 
             migrationBuilder.DropTable(
                 name: "NBTKeys");
 
             migrationBuilder.DropIndex(
-                name: "IX_NBTLookups_NBTKeyId",
+                name: "IX_NBTLookups_KeyId_ValueNumeric",
+                table: "NBTLookups");
+
+            migrationBuilder.DropIndex(
+                name: "IX_NBTLookups_KeyId_ValueString",
                 table: "NBTLookups");
 
             migrationBuilder.DropColumn(
                 name: "KeyId",
                 table: "NBTLookups");
-
-            migrationBuilder.DropColumn(
-                name: "NBTKeyId",
-                table: "NBTLookups");
-
-            migrationBuilder.AlterColumn<long>(
-                name: "ValueNumeric",
-                table: "NBTLookups",
-                type: "bigint",
-                nullable: true,
-                oldClrType: typeof(double),
-                oldType: "double precision",
-                oldNullable: true);
 
             migrationBuilder.AlterColumn<string>(
                 name: "Key",

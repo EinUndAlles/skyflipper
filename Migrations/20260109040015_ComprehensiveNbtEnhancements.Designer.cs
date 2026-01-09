@@ -12,7 +12,7 @@ using SkyFlipperSolo.Data;
 namespace SkyFlipperSolo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260109025043_ComprehensiveNbtEnhancements")]
+    [Migration("20260109040015_ComprehensiveNbtEnhancements")]
     partial class ComprehensiveNbtEnhancements
     {
         /// <inheritdoc />
@@ -318,6 +318,9 @@ namespace SkyFlipperSolo.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("KeyName")
+                        .IsUnique();
+
                     b.ToTable("NBTKeys");
                 });
 
@@ -339,11 +342,8 @@ namespace SkyFlipperSolo.Migrations
                     b.Property<short?>("KeyId")
                         .HasColumnType("smallint");
 
-                    b.Property<short?>("NBTKeyId")
-                        .HasColumnType("smallint");
-
-                    b.Property<double?>("ValueNumeric")
-                        .HasColumnType("double precision");
+                    b.Property<long?>("ValueNumeric")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("ValueString")
                         .HasMaxLength(100)
@@ -353,11 +353,13 @@ namespace SkyFlipperSolo.Migrations
 
                     b.HasIndex("AuctionId");
 
-                    b.HasIndex("NBTKeyId");
-
                     b.HasIndex("Key", "ValueNumeric");
 
                     b.HasIndex("Key", "ValueString");
+
+                    b.HasIndex("KeyId", "ValueNumeric");
+
+                    b.HasIndex("KeyId", "ValueString");
 
                     b.ToTable("NBTLookups");
                 });
@@ -422,7 +424,8 @@ namespace SkyFlipperSolo.Migrations
 
                     b.HasOne("SkyFlipperSolo.Models.NBTKey", "NBTKey")
                         .WithMany("NBTLookups")
-                        .HasForeignKey("NBTKeyId");
+                        .HasForeignKey("KeyId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Auction");
 

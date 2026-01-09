@@ -69,15 +69,23 @@ public class NbtParserService
             {
                 ParseNbtData(auction, hypixelAuction.ItemBytes);
             }
-            // Handle bazaar enchanted books (no NBT tag, extract from item name)
-            else if (auction.Tag == "ENCHANTED_BOOK")
-            {
-                ParseBazaarEnchantedBook(auction);
-            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse NBT for auction {Uuid}", auction.Uuid);
+        }
+
+        // Handle bazaar enchanted books ONLY if no ItemBytes (no NBT)
+        if (string.IsNullOrEmpty(hypixelAuction.ItemBytes) && auction.Tag == "ENCHANTED_BOOK")
+        {
+            ParseBazaarEnchantedBook(auction);
+        }
+
+        // Tier from lore fallback if tier is still UNKNOWN after parsing
+        if (auction.Tier == Tier.UNKNOWN && !string.IsNullOrEmpty(hypixelAuction.ItemLore))
+        {
+            var loreLines = hypixelAuction.ItemLore.Split('\n');
+            auction.Tier = ExtractTierFromLore(loreLines);
         }
 
         return auction;
@@ -586,7 +594,8 @@ public class NbtParserService
         foreach (var size in backpackSizes)
         {
             var key = $"{size}_backpack_data";
-            if (extraTag.TryGet(key, out NbtTag? tag) && tag is NbtByteArray)
+            // Backpacks are stored as byte arrays - just mark presence
+            if (extraTag.TryGet(key, out NbtTag? tag))
                 await AddNumeric(key, 1);
         }
 
@@ -690,25 +699,32 @@ public class NbtParserService
 
     /// <summary>
     /// Converts Roman numerals to integers.
+    /// Handles subtractive notation: IV=4, IX=9, XL=40, XC=90, CD=400, CM=900
     /// </summary>
     private int RomanToInt(string roman)
     {
+        if (string.IsNullOrEmpty(roman)) return 0;
+
         var romanMap = new Dictionary<char, int>
         {
             {'I', 1}, {'V', 5}, {'X', 10}, {'L', 50}, {'C', 100}, {'D', 500}, {'M', 1000}
         };
 
         int result = 0;
-        int prevValue = 0;
 
-        for (int i = roman.Length - 1; i >= 0; i--)
+        for (int i = 0; i < roman.Length; i++)
         {
             int currentValue = romanMap.GetValueOrDefault(roman[i], 0);
-            if (currentValue < prevValue)
+            
+            // Check if next character has higher value (subtractive notation)
+            if (i + 1 < roman.Length && currentValue < romanMap.GetValueOrDefault(roman[i + 1], 0))
+            {
                 result -= currentValue;
+            }
             else
+            {
                 result += currentValue;
-            prevValue = currentValue;
+            }
         }
 
         return result;
@@ -724,7 +740,7 @@ public class NbtParserService
         if (loreLines == null || loreLines.Length == 0)
             return Tier.UNKNOWN;
 
-        var lastLine = loreLines[^1].ToUpper();
+        var lastLine = loreLines.Last().ToUpper();
 
         if (lastLine.Contains("MYTHIC")) return Tier.MYTHIC;
         if (lastLine.Contains("LEGENDARY")) return Tier.LEGENDARY;

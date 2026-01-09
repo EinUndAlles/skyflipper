@@ -40,7 +40,7 @@ public class NBTLookup
     /// <summary>
     /// Numeric value if the NBT value is a number.
     /// </summary>
-    public double? ValueNumeric { get; set; }
+    public long? ValueNumeric { get; set; }
 
     /// <summary>
     /// String value if the NBT value is a string (e.g., "RUBY" for gem type).
