@@ -14,14 +14,7 @@ interface ItemPageProps {
     filters?: FilterOptions[];
 }
 
-interface ItemPageProps {
-    params: Promise<{ tag: string }>;
-    filters?: FilterOptions[];
-}
-
     export default function ItemPage({ params }: ItemPageProps) {
-    const resolvedParams = use(params);
-    const tag = resolvedParams.tag;
     const searchParams = useSearchParams();
     const nameFilter = searchParams.get('filter') || undefined;
 
@@ -81,6 +74,40 @@ interface ItemPageProps {
             fetchAuctions();
         }
     }, [tag, nameFilter, filters]);
+        fetchFilters();
+    }, [tag]);
+
+    useEffect(() => {
+        const fetchAuctions = async () => {
+            try {
+                setLoading(true);
+                const data = await api.getAuctionsByTag(
+                    tag,
+                    200,
+                    nameFilter,
+                    filters.binOnly !== false, // Default to true
+                    filters.showEnded || false,
+                    filters.minStars,
+                    filters.maxStars,
+                    filters.enchantment,
+                    filters.minEnchantLevel,
+                    filters.minPrice,
+                    filters.maxPrice
+                );
+                setAuctions(data);
+            } catch (err) {
+                console.error(err);
+                toast.error('Failed to load auctions');
+                setError('Failed to load auctions.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (tag) {
+            fetchAuctions();
+        }
+    }, [tag, nameFilter, filters]);
 
         if (tag) {
             fetchAuctions();
@@ -103,6 +130,40 @@ interface ItemPageProps {
                 break;
         }
         return sorted;
+    };
+
+    const applyFilters = () => {
+        const data = await api.getAuctionsByTag(
+            tag,
+            200,
+            nameFilter,
+            filters.binOnly !== false, // Default to true
+            filters.showEnded || false,
+            filters.minStars,
+            filters.maxStars,
+            filters.enchantment,
+            filters.minEnchantLevel,
+            filters.minPrice,
+            filters.maxPrice
+        );
+        setAuctions(data);
+    };
+
+    const applyFilters = () => {
+        const data = await api.getAuctionsByTag(
+            tag,
+            200,
+            nameFilter,
+            filters.binOnly !== false, // Default to true
+            filters.showEnded || false,
+            filters.minStars,
+            filters.maxStars,
+            filters.enchantment,
+            filters.minEnchantLevel,
+            filters.minPrice,
+            filters.maxPrice
+        );
+        setAuctions(data);
     };
 
     if (loading) return (

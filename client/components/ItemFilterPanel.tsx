@@ -1,339 +1,370 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, Form, Button, Row, Col, Collapse } from 'react-bootstrap';
+import { useState, useEffect, useRef } from 'react';
+import { Card, Form, Button, Badge } from 'react-bootstrap';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { toast } from '@/components/ToastProvider';
-
-export interface ItemFilters {
-    minStars?: number;
-    maxStars?: number;
-    enchantment?: string;
-    minEnchantLevel?: number;
-    minPrice?: number;
-    maxPrice?: number;
-    binOnly?: boolean;
-    showEnded?: boolean;
-    sortBy?: 'lowest' | 'highest' | 'ending';
-}
+import FilterElement from './filter-elements/EqualFilterElement';
+import NumberRangeFilterElement from './filter-elements/NumberRangeFilterElement';
+import BooleanFilterElement from './filter-elements/BooleanFilterElement';
+import NumericalFilterElement from './filter-elements/NumericalFilterElement';
+import { toast } from './ToastProvider';
+import { ItemFilter, FilterOptions } from '@/types/filters';
+import { FilterType, FilterTypeHelper } from '@/types/filters';
 
 interface Props {
-    onFilterChange?: (filters: ItemFilters) => void;
-    initialFilters?: ItemFilters;
+    onFilterChange?: (filter: ItemFilter) => void;
+    filters?: FilterOptions[];
+    defaultFilter?: ItemFilter;
+    ignoreURL?: boolean;
 }
 
-export default function ItemFilterPanel({ onFilterChange, initialFilters }: Props) {
+// Grouped filters - when one is selected, auto-select related ones
+const GROUPED_FILTERS = [
+    ['Enchantment', 'EnchantLvl'],
+    ['SecondEnchantment', 'SecondEnchantLvl']
+];
+
+export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter, ignoreURL }: Props) {
     const router = useRouter();
     const pathname = usePathname();
     const searchParams = useSearchParams();
 
-    const [isOpen, setIsOpen] = useState(false);
-    // Local state for form inputs (changes on every keystroke)
-    const [localFilters, setLocalFilters] = useState<ItemFilters>(initialFilters || {
-        binOnly: true,
-        showEnded: false,
-        sortBy: 'lowest'
-    });
-    // Applied filters (only updates when "Apply" is clicked)
-    const [appliedFilters, setAppliedFilters] = useState<ItemFilters>(initialFilters || {
-        binOnly: true,
-        showEnded: false,
-        sortBy: 'lowest'
-    });
+    const [itemFilter, _setItemFilter] = useState<ItemFilter>({});
+    const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+    const [expanded, setExpanded] = useState(false);
+    const [invalidFilters, setInvalidFilters] = useState<Set<string>>(new Set());
+    const typeaheadRef = useRef<any>(null);
 
-    // Initialize filters from URL params on mount
+    // Initialize filters from URL or localStorage
     useEffect(() => {
-        const urlFilters: ItemFilters = {};
-
-        const minStars = searchParams.get('minStars');
-        const maxStars = searchParams.get('maxStars');
-        const enchantment = searchParams.get('enchantment');
-        const minEnchantLevel = searchParams.get('minEnchantLevel');
-        const minPrice = searchParams.get('minPrice');
-        const maxPrice = searchParams.get('maxPrice');
-        const binOnly = searchParams.get('binOnly');
-        const showEnded = searchParams.get('showEnded');
-        const sortBy = searchParams.get('sortBy');
-
-        if (minStars) urlFilters.minStars = parseInt(minStars);
-        if (maxStars) urlFilters.maxStars = parseInt(maxStars);
-        if (enchantment) urlFilters.enchantment = enchantment;
-        if (minEnchantLevel) urlFilters.minEnchantLevel = parseInt(minEnchantLevel);
-        if (minPrice) urlFilters.minPrice = parseInt(minPrice);
-        if (maxPrice) urlFilters.maxPrice = parseInt(maxPrice);
-        if (binOnly !== null) urlFilters.binOnly = binOnly !== 'false';
-        if (showEnded !== null) urlFilters.showEnded = showEnded === 'true';
-        if (sortBy) urlFilters.sortBy = sortBy as 'lowest' | 'highest' | 'ending';
-
-        if (Object.keys(urlFilters).length > 0) {
-            const merged = { ...localFilters, ...urlFilters };
-            setLocalFilters(merged);
-            setAppliedFilters(merged);
-            setIsOpen(true);
+        if (filters && filters.length > 0) {
+            initFilter();
         }
-    }, []);
+    }, [filters]);
 
-    const applyFilters = () => {
-        setAppliedFilters(localFilters);
-
-        // Update URL params
-        const params = new URLSearchParams();
-        if (localFilters.minStars) params.set('minStars', localFilters.minStars.toString());
-        if (localFilters.maxStars) params.set('maxStars', localFilters.maxStars.toString());
-        if (localFilters.enchantment) params.set('enchantment', localFilters.enchantment);
-        if (localFilters.minEnchantLevel) params.set('minEnchantLevel', localFilters.minEnchantLevel.toString());
-        if (localFilters.minPrice) params.set('minPrice', localFilters.minPrice.toString());
-        if (localFilters.maxPrice) params.set('maxPrice', localFilters.maxPrice.toString());
-        if (localFilters.binOnly !== undefined) params.set('binOnly', localFilters.binOnly.toString());
-        if (localFilters.showEnded !== undefined) params.set('showEnded', localFilters.showEnded.toString());
-        if (localFilters.sortBy) params.set('sortBy', localFilters.sortBy);
-
-        // Preserve existing params like 'filter' for pets
-        const existingFilter = searchParams.get('filter');
-        if (existingFilter) params.set('filter', existingFilter);
-
-        router.push(`${pathname}?${params.toString()}`);
-
-        // Notify parent component
-        if (onFilterChange) {
-            onFilterChange(localFilters);
+    function initFilter() {
+        if (ignoreURL && !defaultFilter) {
+            return;
         }
 
-        toast.success('Filters applied successfully');
+        let initialFilters: ItemFilter = defaultFilter || {};
+        
+        // Try URL first
+        if (!ignoreURL) {
+            const urlParams = new URLSearchParams(window.location.search);
+            urlParams.forEach((value, key) => {
+                initialFilters[key] = value;
+            });
+        }
+        
+        // Fallback to localStorage if URL empty
+        if (Object.keys(initialFilters).length === 0) {
+            const saved = localStorage.getItem('LAST_USED_FILTER');
+            if (saved) {
+                initialFilters = JSON.parse(saved);
+                // Only keep filters that exist in available options
+                if (filters) {
+                    const validKeys = new Set(filters.map(f => f.name));
+                    Object.keys(initialFilters).forEach(key => {
+                        if (!validKeys.has(key)) {
+                            delete initialFilters[key];
+                        }
+                    });
+                }
+            }
+        }
+
+        _setItemFilter(initialFilters);
+        onFilterChange?.(initialFilters);
+        
+        if (Object.keys(itemFilter).length > 0) {
+            setExpanded(true);
+            Object.keys(itemFilter).forEach(name => {
+                if (!filters?.find(f => f.name === name)) {
+                    delete itemFilter[name];
+                    return;
+                }
+                enableFilter(name);
+                getGroupedFilters(name).forEach(filter => enableFilter(filter));
+            });
+            setItemFilter(itemFilter);
+            onFilterChange(itemFilter);
+        }
+    }
+
+    function getGroupedFilters(filterName: string): string[] {
+        for (const group of GROUPED_FILTERS) {
+            const idx = group.indexOf(filterName);
+            if (idx !== -1) {
+                const groupToEnable = group.filter(f => f !== filterName);
+                return groupToEnable;
+            }
+        }
+        return [];
+    }
+
+    function enableFilter(filterName: string, filterValue?: string) => {
+        if (selectedFilters.some(n => n === filterName)) {
+            return;
+        }
+
+        selectedFilters = [...selectedFilters, filterName];
+        setSelectedFilters(selectedFilters);
+
+        if (itemFilter[filterName] === undefined && !filterValue) {
+            itemFilter[filterName] = getDefaultValue(filterName);
+        }
+        if (itemFilter[filterName] === undefined && filterValue) {
+            itemFilter[filterName] = filterValue;
+        }
+        
+        updateURL();
+        setItemFilter(itemFilter);
+        onFilterChange(itemFilter);
+    }
+
+    function removeFilter(filterName: string) => {
+        if (invalidFilters.has(filterName)) {
+            const newInvalidFilters = new Set(invalidFilters);
+            newInvalidFilters.delete(filterName);
+            setInvalidFilters(newInvalidFilters);
+        }
+        delete itemFilter[filterName];
+        setItemFilter({ ...itemFilter });
+        updateURL();
+        onFilterChange(itemFilter);
+        
+        // Remove grouped filters
+        getGroupedFilters(filterName).forEach(filter => removeFilter(filter));
+        
+        const newSelected = selectedFilters.filter(f => f !== filterName);
+        setSelectedFilters(newSelected);
+    }
+
+    let addFilter = ([selected]: FilterOptions[]) => {
+        if (!selected) {
+            return;
+        }
+
+        enableFilter(selected.name);
+        getGroupedFilters(selected.name).forEach(filter => enableFilter(filter));
+        typeaheadRef.current?.clear();
     };
 
-    const clearFilters = () => {
-        const cleared: ItemFilters = {
-            binOnly: true,
-            showEnded: false,
-            sortBy: 'lowest'
-        };
-        setLocalFilters(cleared);
-        setAppliedFilters(cleared);
-
-        // Keep only the 'filter' param for pets
-        const params = new URLSearchParams();
-        const existingFilter = searchParams.get('filter');
-        if (existingFilter) params.set('filter', existingFilter);
-
-        router.push(`${pathname}?${params.toString()}`);
-        if (onFilterChange) {
-            onFilterChange(cleared);
-        }
-
-        toast.success('Filters cleared');
+    let onFilterClose = () => {
+        setSelectedFilters([]);
+        setExpanded(false);
+        setItemFilter({});
+        updateURL();
+        onFilterChange({});
     };
 
-    const hasActiveFilters = !!(
-        localFilters.minStars ||
-        localFilters.maxStars ||
-        localFilters.enchantment ||
-        localFilters.minEnchantLevel ||
-        localFilters.minPrice ||
-        localFilters.maxPrice
-    );
+    function onFilterRemoveClick(filterName: string) => {
+        if (invalidFilters.has(filterName)) {
+            const newInvalidFilters = new Set(invalidFilters);
+            newInvalidFilters.delete(filterName);
+            setInvalidFilters(newInvalidFilters);
+        }
+        removeFilter(filterName);
+        getGroupedFilters(filterName).forEach(filter => removeFilter(filter));
+    }
 
-    const hasUnappliedChanges = JSON.stringify(localFilters) !== JSON.stringify(appliedFilters);
+    const updateURL = () => {
+        if (ignoreURL) {
+            return;
+        }
 
-    return (
-        <div className="mb-4">
-            {!isOpen ? (
-                <Button
-                    variant="outline-secondary"
-                    onClick={() => setIsOpen(true)}
+        const params = new URLSearchParams();
+        Object.entries(itemFilter).forEach(([key, value]) => {
+            if (value && value !== '') {
+                params.set(key, value);
+            }
+        });
+        
+        router.replace(`${pathname}?${params.toString()}`);
+    };
+
+    function onFilterChange(filter: ItemFilter) {
+        let filterCopy = { ...filter };
+        
+        let valid = true;
+        Object.keys(filterCopy).forEach(key => {
+            if (!checkForValidGroupedFilter(key, filterCopy)) {
+                valid = false;
+                return;
+            }
+        });
+
+        if (!valid) {
+            return;
+        }
+
+        setItemFilter(filterCopy);
+        if (!ignoreURL) {
+            localStorage.setItem('LAST_USED_FILTER', JSON.stringify(filterCopy));
+        }
+        if (onFilterChange) {
+            Object.keys(filterCopy).forEach(key => {
+                if (filterCopy[key] === '' || filterCopy[key] === null) {
+                    delete filterCopy[key];
+                }
+            });
+            onFilterChange(filterCopy);
+        }
+    }
+
+    function checkForValidGroupedFilter(filterName: string, filter: ItemFilter): boolean {
+        let groupFilters = getGroupedFilters(filterName);
+        
+        let invalid = false;
+        groupFilters.forEach(name => {
+            if (filter[name] === undefined || filter[name] === null) {
+                invalid = true;
+            }
+        });
+        
+        return !invalid;
+    }
+
+    function setInvalidFilters(newInvalidFilters: Set<string>) {
+        if (onFilterChange) {
+            onFilterChange(newInvalidFilters.size === 0);
+        }
+        _setInvalidFilters(newInvalidFilters);
+    }
+
+    function getDefaultValue(filterName: string): string {
+        const options = filters?.find(f => f.name === filterName);
+        let defaultValue: any = '';
+        
+        if (options && options.options[0] !== null && options.options[0] !== undefined) {
+            if ((FilterTypeHelper.HasFlag(options.type, FilterType.EQUAL) && FilterTypeHelper.HasFlag(options.type, FilterType.SIMPLE)) || FilterTypeHelper.HasFlag(options.type, FilterType.BOOLEAN)) {
+                defaultValue = options.options[0];
+                if (options.name === 'Everything') {
+                    defaultValue = 'true';
+                }
+            }
+        }
+        
+        if (filterName === 'Color') {
+            defaultValue = '#000000';
+        }
+        
+        return defaultValue;
+    }
+
+    const sortedFilters = useMemo(() => {
+        if (!filters) {
+            return [];
+        }
+        
+        // Sort alphabetically (similar to hypixel-react for now)
+        return filters.sort((a, b) => {
+            if (a.name.toLowerCase() < b.name.toLowerCase()) return -1;
+            if (a.name.toLowerCase() > b.name.toLowerCase()) return 1;
+            return 0;
+        });
+    }, [filters]);
+
+    if (!expanded) {
+        return (
+            <div>
+                <Button 
+                    variant="outline-secondary" 
+                    onClick={() => setExpanded(true)}
                     className="w-100"
                 >
                     + Add Filters
                 </Button>
-            ) : (
-                <Card className="bg-dark text-light border-secondary">
-                    <Card.Header className="d-flex justify-content-between align-items-center">
-                        <span className="fw-bold">Filters</span>
-                        <Button
-                            variant="link"
-                            size="sm"
-                            className="text-secondary"
-                            onClick={() => setIsOpen(false)}
-                        >
-                            ✕
-                        </Button>
-                    </Card.Header>
-                    <Card.Body>
-                        <Row className="g-3">
-                            {/* Star Level Filter */}
-                            <Col md={6}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Min Stars</Form.Label>
-                                    <Form.Control
-                                        type="number"
-                                        min="0"
-                                        max="5"
-                                        className="bg-dark text-light border-secondary"
-                                        placeholder="0"
-                                        value={localFilters.minStars || ''}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            minStars: e.target.value ? parseInt(e.target.value) : undefined
-                                        })}
-                                    />
-                                </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Max Stars</Form.Label>
-                                    <Form.Control
-                                        type="number"
-                                        min="0"
-                                        max="5"
-                                        className="bg-dark text-light border-secondary"
-                                        placeholder="5"
-                                        value={localFilters.maxStars || ''}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            maxStars: e.target.value ? parseInt(e.target.value) : undefined
-                                        })}
-                                    />
-                                </Form.Group>
-                            </Col>
+            </div>
+        );
+    }
 
-                            {/* Enchantment Filter */}
-                            <Col md={8}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Enchantment</Form.Label>
-                                    <Form.Control
-                                        type="text"
-                                        className="bg-dark text-light border-secondary"
-                                        placeholder="e.g., sharpness, protection"
-                                        value={localFilters.enchantment || ''}
-                                        onChange={(e) => setLocalFilters({ 
-                                            ...localFilters,
-                                            enchantment: e.target.value || undefined 
-                                        })}
-                                    />
-                                </Form.Group>
-                            </Col>
-                            <Col md={4}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Min Level</Form.Label>
-                                    <Form.Control
-                                        type="number"
-                                        min="1"
-                                        className="bg-dark text-light border-secondary"
-                                        placeholder="1"
-                                        value={localFilters.minEnchantLevel || ''}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            minEnchantLevel: e.target.value ? parseInt(e.target.value) : undefined
-                                        })}
-                                        disabled={!localFilters.enchantment}
-                                    />
-                                </Form.Group>
-                            </Col>
-
-                            {/* Price Range Filter */}
-                            <Col md={6}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Min Price (coins)</Form.Label>
-                                    <Form.Control
-                                        type="number"
-                                        className="bg-dark text-light border-secondary"
-                                        placeholder="0"
-                                        value={localFilters.minPrice || ''}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            minPrice: e.target.value ? parseInt(e.target.value) : undefined
-                                        })}
-                                    />
-                                </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Max Price (coins)</Form.Label>
-                                    <Form.Control
-                                        type="number"
-                                        className="bg-dark text-light border-secondary"
-                                        placeholder="Unlimited"
-                                        value={localFilters.maxPrice || ''}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            maxPrice: e.target.value ? parseInt(e.target.value) : undefined
-                                        })}
-                                    />
-                                </Form.Group>
-                            </Col>
-
-                            {/* Auction Type & Sorting */}
-                            <Col md={6}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Auction Type</Form.Label>
-                                    <Form.Select
-                                        className="bg-dark text-light border-secondary"
-                                        value={localFilters.binOnly === undefined ? 'all' : (localFilters.binOnly ? 'bin' : 'auction')}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            binOnly: e.target.value === 'all' ? undefined : e.target.value === 'bin'
-                                        })}
-                                    >
-                                        <option value="all">All</option>
-                                        <option value="bin">BIN Only</option>
-                                        <option value="auction">Auction Only</option>
-                                    </Form.Select>
-                                </Form.Group>
-                            </Col>
-                            <Col md={6}>
-                                <Form.Group>
-                                    <Form.Label className="text-secondary small">Sort By</Form.Label>
-                                    <Form.Select
-                                        className="bg-dark text-light border-secondary"
-                                        value={localFilters.sortBy || 'lowest'}
-                                        onChange={(e) => setLocalFilters({
-                                            ...localFilters,
-                                            sortBy: e.target.value as 'lowest' | 'highest' | 'ending'
-                                        })}
-                                    >
-                                        <option value="lowest">Lowest Price</option>
-                                        <option value="highest">Highest Price</option>
-                                        <option value="ending">Ending Soon</option>
-                                    </Form.Select>
-                                </Form.Group>
-                            </Col>
-
-                            {/* Show Ended Toggle */}
-                            <Col xs={12}>
-                                <Form.Check
-                                    type="checkbox"
-                                    label="Show Ended Auctions"
-                                    className="text-light"
-                                    checked={localFilters.showEnded || false}
-                                    onChange={(e) => setLocalFilters({ 
-                                        ...localFilters,
-                                        showEnded: e.target.checked 
-                                    })}
-                                />
-                            </Col>
-                        </Row>
-
-                        <div className="mt-3 d-flex gap-2">
-                            <Button
-                                variant="primary"
-                                onClick={applyFilters}
-                                disabled={!hasUnappliedChanges}
-                            >
-                                Apply Filters
-                            </Button>
-                            {hasActiveFilters && (
-                                <Button
-                                    variant="outline-danger"
-                                    size="sm"
-                                    onClick={clearFilters}
-                                >
-                                    Clear All
-                                </Button>
-                            )}
+    return (
+        <Card className="bg-dark text-light border-secondary">
+            <Card.Header className="d-flex justify-content-between align-items-center">
+                <span className="fw-bold">Filters</span>
+                <Button variant="link" size="sm" onClick={() => setExpanded(false)}>
+                    ✕
+                </Button>
+            </Card.Header>
+            <Card.Body>
+                {!filters ? (
+                    <Spinner animation="border" role="status" variant="primary" />
+                ) : (
+                    <div className="mb-3">
+                        <Form className="mb-3">
+                            <Typeahead
+                                id="add-filter-typeahead"
+                                placeholder="Add filter"
+                                onChange={addFilter}
+                                options={sortedFilters}
+                                labelKey={(options: FilterOptions) => options.name}
+                                filterBy={(options: FilterOptions, props) => {
+                                    const search = (props.text || '').toLowerCase();
+                                    return options.name.toLowerCase().includes(search);
+                                }}
+                                ref={typeaheadRef}
+                            />
+                        </Form>
+                        
+                        <div className="d-flex flex-wrap gap-2 mt-3">
+                            {selectedFilters.map(filterName => {
+                                const options = filters?.find(f => f.name === filterName);
+                                if (!options) {
+                                    return null;
+                                }
+                                
+                                const defaultValue = getDefaultValue(filterName);
+                                if (itemFilter[filterName]) {
+                                    // Override with current value if set
+                                    defaultValue = itemFilter[filterName];
+                                }
+                                
+                                return (
+                                    <div key={filterName} className="filter-element-wrapper">
+                                        <FilterElement
+                                            options={options}
+                                            defaultValue={defaultValue}
+                                            onFilterChange={(newFilter) => {
+                                                const newFilter = { ...itemFilter };
+                                                newFilter[filterName] = newFilter[filterName];
+                                                setItemFilter(newFilter);
+                                                updateURL();
+                                                onFilterChange(newFilter);
+                                            }}
+                                            onIsValidChange={(isValid) => {
+                                                const newInvalid = new Set(invalidFilters);
+                                                if (isValid) {
+                                                    newInvalid.delete(filterName);
+                                                } else {
+                                                    newInvalid.add(filterName);
+                                                }
+                                                setInvalidFilters(newInvalid);
+                                            }}
+                                        />
+                                        <Button 
+                                            variant="outline-danger" 
+                                            size="sm"
+                                            onClick={() => onFilterRemoveClick(filterName)}
+                                            className="remove-filter-btn"
+                                        >
+                                            ✕
+                                        </Button>
+                                    </div>
+                                );
+                            })}
                         </div>
-                    </Card.Body>
-                </Card>
+                    </div>
+                )}
+            </Card.Body>
+            {!ignoreURL && (
+                <div className="mt-3">
+                    <Button variant="danger" onClick={onFilterClose()}>
+                        Close
+                    </Button>
+                </div>
             )}
-        </div>
+        </Card>
     );
 }
