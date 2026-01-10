@@ -242,10 +242,68 @@ public class AuctionsController : ControllerBase
     }
 
     /// <summary>
-    /// Get top item tags by count
+    /// Get filter options for a specific item tag
     /// </summary>
-    [HttpGet("top-tags")]
-    public async Task<IActionResult> GetTopTags([FromQuery] int limit = 20)
+    [HttpGet("filters/{tag}")]
+    public async Task<IActionResult> GetFiltersByTag(string tag)
+    {
+        var upperTag = tag.ToUpper();
+
+        // Return common filters that apply to most items
+        var commonFilters = new List<FilterOptions>
+        {
+            // Stars filter (dungeon item level)
+            new FilterOptions
+            {
+                Name = "Stars",
+                Type = FilterType.NUMERICAL | FilterType.RANGE,
+                Options = new[] { "0", "1", "2", "3", "4", "5" }
+            },
+            // Rarity filter
+            new FilterOptions
+            {
+                Name = "Rarity",
+                Type = FilterType.EQUAL,
+                Options = new[] { "COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC", "SPECIAL" }
+            },
+            // Reforge filter
+            new FilterOptions
+            {
+                Name = "Reforge",
+                Type = FilterType.EQUAL,
+                Options = Enum.GetNames(typeof(Reforge))
+            },
+            // Enchantment filter
+            new FilterOptions
+            {
+                Name = "Enchantment",
+                Type = FilterType.EQUAL,
+                Options = Enum.GetNames(typeof(EnchantmentType))
+            },
+            // BIN filter
+            new FilterOptions
+            {
+                Name = "Bin",
+                Type = FilterType.BOOLEAN,
+                Options = new[] { "true", "false" }
+            },
+            // Min/Max price filter
+            new FilterOptions
+            {
+                Name = "MinPrice",
+                Type = FilterType.NUMERICAL | FilterType.RANGE,
+                Options = new[] { "0", "50000000", "100000000", "5000000000", "10000000000" }
+            },
+            new FilterOptions
+            {
+                Name = "MaxPrice",
+                Type = FilterType.NUMERICAL | FilterType.RANGE,
+                Options = new[] { "0", "500000", "1000000", "10000000", "500000000" }
+            }
+        };
+
+        return Ok(commonFilters);
+    }
     {
         var tags = await _context.Auctions
             .Where(a => !string.IsNullOrEmpty(a.Tag))

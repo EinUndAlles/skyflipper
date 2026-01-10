@@ -11,9 +11,15 @@ import { toast } from '@/components/ToastProvider';
 
 interface ItemPageProps {
     params: Promise<{ tag: string }>;
+    filters?: FilterOptions[];
 }
 
-export default function ItemPage({ params }: ItemPageProps) {
+interface ItemPageProps {
+    params: Promise<{ tag: string }>;
+    filters?: FilterOptions[];
+}
+
+    export default function ItemPage({ params }: ItemPageProps) {
     const resolvedParams = use(params);
     const tag = resolvedParams.tag;
     const searchParams = useSearchParams();
@@ -23,6 +29,26 @@ export default function ItemPage({ params }: ItemPageProps) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [filters, setFilters] = useState<ItemFilters>({});
+    const [filterOptions, setFilterOptions] = useState<FilterOptions[]>([]);
+
+    // Fetch filter options on mount
+    useEffect(() => {
+        const fetchFilters = async () => {
+            if (tag) {
+                try {
+                    setLoading(true);
+                    const data = await fetch(`/api/auctions/filters/${tag}`);
+                    const options = await data.json();
+                    setFilterOptions(options);
+                } catch (err) {
+                    console.error('Failed to fetch filters', err);
+                } finally {
+                    setLoading(false);
+                }
+            }
+        };
+        fetchFilters();
+    }, [tag]);
 
     useEffect(() => {
         const fetchAuctions = async () => {
@@ -50,6 +76,11 @@ export default function ItemPage({ params }: ItemPageProps) {
                 setLoading(false);
             }
         };
+
+        if (tag) {
+            fetchAuctions();
+        }
+    }, [tag, nameFilter, filters]);
 
         if (tag) {
             fetchAuctions();
