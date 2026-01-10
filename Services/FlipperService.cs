@@ -261,7 +261,30 @@ public class FlipperService : BackgroundService
             {
                 dbContext.NBTLookups.AddRange(lookupBatch);
                 await dbContext.SaveChangesAsync(stoppingToken);
-                
+            }
+
+            // Step 5: Update ItemDetails for all auctions
+            var itemDetailsService = scope.ServiceProvider.GetRequiredService<ItemDetailsService>();
+            foreach (var auction in newAuctions)
+            {
+                try
+                {
+                    await itemDetailsService.GetOrCreateItemDetails(
+                        auction.Tag,
+                        auction.ItemName,
+                        auction.Tier,
+                        auction.Category,
+                        null  // Lore not available on Auction model
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update ItemDetails for {Tag}", auction.Tag);
+                }
+            }
+
+            if (bidBatch.Count > 0 || lookupBatch.Count > 0)
+            {
                 _logger.LogInformation("✅ Saved {Count} auctions with {NbtCount} NBT data, {LookupCount} lookups, {BidCount} bids (skipped {Skipped})", 
                     newAuctions.Count, 
                     newAuctions.Count(a => a.NbtData != null),
