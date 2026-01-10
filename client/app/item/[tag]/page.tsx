@@ -45,24 +45,6 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
         }
     }, [tag, activeFilters]);
 
-    const getFilteredAuctions = () => {
-        const sorted = [...auctions];
-        const sortBy = activeFilters.sortBy || 'lowest';
-
-        switch (sortBy) {
-            case 'lowest':
-                sorted.sort((a, b) => a.price - b.price);
-                break;
-            case 'highest':
-                sorted.sort((a, b) => b.price - a.price);
-                break;
-            case 'ending':
-                sorted.sort((a, b) => new Date(a.end).getTime() - new Date(b.end).getTime());
-                break;
-        }
-        return sorted;
-    };
-
     if (loading) {
         return (
             <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>

@@ -10,6 +10,7 @@ import NumericalFilterElement from './filter-elements/NumericalFilterElement';
 import { toast } from './ToastProvider';
 import { ItemFilter, FilterOptions } from '@/types/filters';
 import { FilterType, FilterTypeHelper } from '@/types/filters';
+import { FilterType, FilterTypeHelper } from '@/types/filters';
 
 interface Props {
     onFilterChange?: (filter: ItemFilter) => void;
