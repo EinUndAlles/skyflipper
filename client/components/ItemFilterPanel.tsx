@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Card, Form, Button, Row, Col, Collapse } from 'react-bootstrap';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { toast } from '@/components/ToastProvider';
 
 export interface ItemFilters {
     minStars?: number;
@@ -97,6 +98,8 @@ export default function ItemFilterPanel({ onFilterChange, initialFilters }: Prop
         if (onFilterChange) {
             onFilterChange(localFilters);
         }
+
+        toast.success('Filters applied successfully');
     };
 
     const clearFilters = () => {
@@ -117,6 +120,8 @@ export default function ItemFilterPanel({ onFilterChange, initialFilters }: Prop
         if (onFilterChange) {
             onFilterChange(cleared);
         }
+
+        toast.success('Filters cleared');
     };
 
     const hasActiveFilters = !!(

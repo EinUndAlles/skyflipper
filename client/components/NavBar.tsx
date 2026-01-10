@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getItemImageUrl } from '../api/ApiHelper';
 import { getTierStyle } from '../utils/rarity';
+import { toast } from '@/components/ToastProvider';
 
 export default function NavBar() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -46,6 +47,7 @@ export default function NavBar() {
                     setSelectedIndex(0); // Reset selection on new results
                 } catch (error) {
                     console.error("Search failed", error);
+                    toast.error('Failed to search items');
                 }
             } else {
                 setSearchResults([]);

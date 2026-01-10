@@ -5,6 +5,7 @@ import { api } from '@/api/ApiHelper';
 import { Stats, TagCount } from '@/types';
 import { Row, Col, Card, Container, Spinner, Badge } from 'react-bootstrap';
 import Link from 'next/link';
+import { toast } from '@/components/ToastProvider';
 
 export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -22,6 +23,7 @@ export default function Home() {
         setTopTags(tagsData);
       } catch (e) {
         console.error("Failed to fetch data", e);
+        toast.error('Failed to load data');
       } finally {
         setLoading(false);
       }

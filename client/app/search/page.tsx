@@ -6,6 +6,7 @@ import { api } from '@/api/ApiHelper';
 import { Auction } from '@/types';
 import AuctionCard from '@/components/AuctionCard';
 import { Container, Row, Col, Spinner, Alert } from 'react-bootstrap';
+import { toast } from '@/components/ToastProvider';
 
 function SearchContent() {
     const searchParams = useSearchParams();
@@ -28,6 +29,7 @@ function SearchContent() {
                 setAuctions(results);
             } catch (err) {
                 console.error(err);
+                toast.error('Failed to fetch auctions');
                 setError('Failed to fetch auctions. Please try again.');
             } finally {
                 setLoading(false);

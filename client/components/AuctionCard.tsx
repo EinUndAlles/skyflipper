@@ -7,6 +7,7 @@ import { getItemImageUrl } from '@/api/ApiHelper';
 import { getRarityColor, getRarityName } from '@/utils/rarity';
 import Image from 'next/image';
 import Link from 'next/link';
+import { toast } from '@/components/ToastProvider';
 
 
 interface Props {
@@ -15,6 +16,16 @@ interface Props {
 
 export default function AuctionCard({ auction }: Props) {
     const [timeLeft, setTimeLeft] = useState('');
+
+    const handleCopyUUID = async () => {
+        const text = `/viewauction ${auction.uuid}`;
+        try {
+            await navigator.clipboard.writeText(text);
+            toast.success('Copied to clipboard!');
+        } catch (error) {
+            toast.error('Failed to copy to clipboard');
+        }
+    };
 
     useEffect(() => {
         const updateTime = () => {
@@ -84,9 +95,19 @@ export default function AuctionCard({ auction }: Props) {
                         <span>{auction.bin ? 'BIN' : 'Auction'}</span>
                         <span>{timeLeft}</span>
                     </div>
-                    <Link href={`/auction/${auction.uuid}`}>
-                        <Button variant="outline-light" className="w-100">View Details</Button>
-                    </Link>
+                    <div className="d-flex gap-2">
+                        <Link href={`/auction/${auction.uuid}`} className="flex-grow-1">
+                            <Button variant="outline-light" className="w-100">View Details</Button>
+                        </Link>
+                        <Button
+                            variant="outline-secondary"
+                            onClick={handleCopyUUID}
+                            title="Copy UUID"
+                            style={{ minWidth: '50px' }}
+                        >
+                            📋
+                        </Button>
+                    </div>
                 </div>
             </Card.Body>
         </Card>

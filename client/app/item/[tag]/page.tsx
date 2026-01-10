@@ -7,6 +7,7 @@ import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { Auction } from '@/types';
 import AuctionCard from '@/components/AuctionCard';
 import ItemFilterPanel, { ItemFilters } from '@/components/ItemFilterPanel';
+import { toast } from '@/components/ToastProvider';
 
 interface ItemPageProps {
     params: Promise<{ tag: string }>;
@@ -43,6 +44,7 @@ export default function ItemPage({ params }: ItemPageProps) {
                 setAuctions(data);
             } catch (err) {
                 console.error(err);
+                toast.error('Failed to load auctions');
                 setError('Failed to load auctions.');
             } finally {
                 setLoading(false);

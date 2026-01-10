@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace SkyFlipperSolo.Models;
 
@@ -29,5 +30,6 @@ public class NBTKey
     /// <summary>
     /// Navigation property - all lookups using this key.
     /// </summary>
+    [JsonIgnore] // Prevent circular reference during serialization
     public List<NBTLookup> NBTLookups { get; set; } = new();
 }

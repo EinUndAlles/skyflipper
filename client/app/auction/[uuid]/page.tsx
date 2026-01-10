@@ -8,11 +8,23 @@ import { Container, Row, Col, Card, Badge, Spinner, Button, Table } from 'react-
 import Image from 'next/image';
 import Link from 'next/link';
 import { formatDistanceToNow, format } from 'date-fns';
+import { toast } from '@/components/ToastProvider';
 
 export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: string }> }) {
     const { uuid } = use(params);
     const [auction, setAuction] = useState<Auction | null>(null);
     const [loading, setLoading] = useState(true);
+
+    const handleCopyUUID = async () => {
+        if (!auction) return;
+        const text = `/viewauction ${auction.uuid}`;
+        try {
+            await navigator.clipboard.writeText(text);
+            toast.success('Copied to clipboard!');
+        } catch (error) {
+            toast.error('Failed to copy to clipboard');
+        }
+    };
 
     useEffect(() => {
         const fetchAuction = async () => {
@@ -21,6 +33,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
                 setAuction(data);
             } catch (e) {
                 console.error(e);
+                toast.error('Failed to load auction details');
             } finally {
                 setLoading(false);
             }
@@ -79,7 +92,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
 
     return (
         <Container className="py-5">
-            <Link href="/search" className="btn btn-outline-secondary mb-4">&larr; Back to Search</Link>
+            <Link href={`/item/${auction.tag}`} className="btn btn-outline-secondary mb-4">&larr; Back to {auction.itemName}</Link>
 
             <Row className="gy-4">
                 {/* Left: Item Preview */}
@@ -148,7 +161,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
                                     <div className="d-flex flex-wrap gap-2">
                                         {auction.enchantments.map((ench, i) => {
                                             const enchName = formatEnchantmentName(ench.type || 'unknown');
-                                            const isUltimate = ench.type?.startsWith('ultimate_');
+                                            const isUltimate = String(ench.type || '').startsWith('ultimate_');
                                             return (
                                                 <Badge 
                                                     key={i} 
@@ -228,10 +241,23 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
                                                 <td>{format(new Date(auction.itemCreatedAt), 'PPpp')}</td>
                                             </tr>
                                         )}
-                                        <tr>
-                                            <td className="fw-bold">UUID</td>
-                                            <td className="font-monospace small">{auction.uuid}</td>
-                                        </tr>
+                                         <tr>
+                                             <td className="fw-bold">UUID</td>
+                                             <td>
+                                                 <div className="d-flex align-items-center justify-content-between">
+                                                     <span className="font-monospace small">{auction.uuid}</span>
+                                                     <Button
+                                                         variant="outline-secondary"
+                                                         size="sm"
+                                                         onClick={handleCopyUUID}
+                                                         className="ms-2"
+                                                         style={{ minWidth: '50px' }}
+                                                     >
+                                                         📋
+                                                     </Button>
+                                                 </div>
+                                             </td>
+                                         </tr>
                                     </tbody>
                                 </Table>
                             </div>

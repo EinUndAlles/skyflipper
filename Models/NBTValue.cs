@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace SkyFlipperSolo.Models;
 
@@ -23,10 +24,11 @@ public class NBTValue
     /// Helps with deduplication - same value for different keys are stored separately.
     /// </summary>
     public short KeyId { get; set; }
-    
+
     /// <summary>
     /// Navigation property to NBTKey.
     /// </summary>
+    [JsonIgnore] // Prevent circular reference during serialization
     public NBTKey NBTKey { get; set; } = null!;
 
     /// <summary>
@@ -40,5 +42,6 @@ public class NBTValue
     /// <summary>
     /// Navigation property - all lookups using this value.
     /// </summary>
+    [JsonIgnore] // Prevent circular reference during serialization
     public List<NBTLookup> NBTLookups { get; set; } = new();
 }
