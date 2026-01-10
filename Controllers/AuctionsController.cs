@@ -100,7 +100,7 @@ public class AuctionsController : ControllerBase
 
 
     /// <summary>
-    /// Get auctions by item tag
+    /// Get auctions by item tag with optional NBT filtering
     /// </summary>
     [HttpGet("by-tag/{tag}")]
     public async Task<IActionResult> GetByTag(
@@ -108,7 +108,13 @@ public class AuctionsController : ControllerBase
         [FromQuery] int limit = 200, 
         [FromQuery] string? filter = null,
         [FromQuery] bool binOnly = true,
-        [FromQuery] bool showEnded = false)
+        [FromQuery] bool showEnded = false,
+        [FromQuery] int? minStars = null,
+        [FromQuery] int? maxStars = null,
+        [FromQuery] string? enchantment = null,
+        [FromQuery] int? minEnchantLevel = null,
+        [FromQuery] long? minPrice = null,
+        [FromQuery] long? maxPrice = null)
     {
         var upperTag = tag.ToUpper();
         
@@ -135,6 +141,63 @@ public class AuctionsController : ControllerBase
         
         // Always filter out sold/expired auctions (only show active)
         query = query.Where(a => a.Status == AuctionStatus.ACTIVE);
+        
+        // --- NBT-based filtering ---
+        
+        // Filter by star level (dungeon item level)
+        if (minStars.HasValue || maxStars.HasValue)
+        {
+            var starKeyId = await _context.NBTKeys
+                .Where(k => k.KeyName == "upgrade_level" || k.KeyName == "dungeon_item_level")
+                .Select(k => k.Id)
+                .FirstOrDefaultAsync();
+
+            if (starKeyId > 0)
+            {
+                var auctionIdsWithStars = await _context.NBTLookups
+                    .Include(nbt => nbt.Auction)
+                    .Where(nbt => nbt.KeyId == starKeyId)
+                    .Where(nbt => !minStars.HasValue || (nbt.ValueNumeric.HasValue && nbt.ValueNumeric.Value >= minStars.Value))
+                    .Where(nbt => !maxStars.HasValue || (nbt.ValueNumeric.HasValue && nbt.ValueNumeric.Value <= maxStars.Value))
+                    .Select(nbt => nbt.Auction!.Uuid)
+                    .ToListAsync();
+
+                query = query.Where(a => auctionIdsWithStars.Contains(a.Uuid));
+            }
+        }
+        
+        // Filter by enchantment
+        if (!string.IsNullOrEmpty(enchantment))
+        {
+            // Parse the enchantment string to enum
+            if (Enum.TryParse<EnchantmentType>(enchantment.ToLower(), true, out var enchantType))
+            {
+                var enchantQuery = _context.Enchantments
+                    .Where(e => e.Type == enchantType);
+                
+                if (minEnchantLevel.HasValue)
+                {
+                    enchantQuery = enchantQuery.Where(e => e.Level >= minEnchantLevel.Value);
+                }
+                
+                var auctionIdsWithEnchant = await enchantQuery
+                    .Select(e => e.Auction!.Uuid)
+                    .Distinct()
+                    .ToListAsync();
+                
+                query = query.Where(a => auctionIdsWithEnchant.Contains(a.Uuid));
+            }
+        }
+        
+        // Filter by price range
+        if (minPrice.HasValue)
+        {
+            query = query.Where(a => (a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid) >= minPrice.Value);
+        }
+        if (maxPrice.HasValue)
+        {
+            query = query.Where(a => (a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid) <= maxPrice.Value);
+        }
         
         var auctions = await query
             .OrderBy(a => a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid) // Sort by price (cheapest first)
@@ -165,6 +228,11 @@ public class AuctionsController : ControllerBase
     {
         var auction = await _context.Auctions
             .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(nbt => nbt.NBTKey)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(nbt => nbt.NBTValue)
+            .Include(a => a.Bids)
             .FirstOrDefaultAsync(a => a.Uuid == uuid.Replace("-", ""));
 
         if (auction == null)
@@ -226,6 +294,9 @@ public class AuctionsController : ControllerBase
             {
                 var cleanName = item.ItemName;
                 
+                // --- Remove Stars & Master Stars (✪, ➊, ➋, etc.) ---
+                cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"[✪✫⚚➊➋➌➍➎➏➐➑➒]+", "").Trim();
+                
                 // --- Pet Cleaning ---
                 // Tag is "PET" (generic) or starts with "PET_" (specific skins/types)
                 if (item.Tag == "PET" || item.Tag.StartsWith("PET_"))
@@ -243,16 +314,23 @@ public class AuctionsController : ControllerBase
                     {
                         if (reforgeName == "None") continue;
 
-                        if (cleanName.StartsWith(reforgeName + " ", StringComparison.OrdinalIgnoreCase))
+                        // Handle both "Reforge " and "Reforge's " patterns (e.g., "Jerry's")
+                        var hasReforgeSpace = cleanName.StartsWith(reforgeName + " ", StringComparison.OrdinalIgnoreCase);
+                        var hasReforgeApostrophe = cleanName.StartsWith(reforgeName + "'s ", StringComparison.OrdinalIgnoreCase);
+
+                        if (hasReforgeSpace || hasReforgeApostrophe)
                         {
                             // SAFETY CHECK: Does the Tag contain the reforge name?
-                            // e.g. "Strong Dragon Chestplate" -> Tag "STRONG_DRAGON_..." -> Startswith "Strong "
+                            // e.g. "Strong Dragon Chestplate" -> Tag "STRONG_DRAGON_..." -> Contains "STRONG"
                             // We do NOT want to strip "Strong" because it's part of the item identity (Tag).
                             // But "Heroic Aspect of the End" -> Tag "ASPECT_OF_THE_END" -> Strip "Heroic".
                             
                             if (!item.Tag.Contains(reforgeName.ToUpper()))
                             {
-                                cleanName = cleanName.Substring(reforgeName.Length + 1);
+                                if (hasReforgeSpace)
+                                    cleanName = cleanName.Substring(reforgeName.Length + 1);
+                                else // hasReforgeApostrophe
+                                    cleanName = cleanName.Substring(reforgeName.Length + 3); // Remove "Jerry's "
                                 break; // Only remove one prefix
                             }
                         }

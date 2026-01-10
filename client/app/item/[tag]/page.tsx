@@ -2,10 +2,11 @@
 
 import { useEffect, useState, use } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Container, Row, Col, Spinner, Alert, Button, Form, Badge } from 'react-bootstrap';
+import { Container, Row, Col, Spinner, Alert } from 'react-bootstrap';
 import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { Auction } from '@/types';
 import AuctionCard from '@/components/AuctionCard';
+import ItemFilterPanel, { ItemFilters } from '@/components/ItemFilterPanel';
 
 interface ItemPageProps {
     params: Promise<{ tag: string }>;
@@ -20,14 +21,25 @@ export default function ItemPage({ params }: ItemPageProps) {
     const [auctions, setAuctions] = useState<Auction[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [filter, setFilter] = useState<'lowest' | 'highest' | 'ending'>('lowest');
-    const [showEnded, setShowEnded] = useState(false);
+    const [filters, setFilters] = useState<ItemFilters>({});
 
     useEffect(() => {
         const fetchAuctions = async () => {
             try {
                 setLoading(true);
-                const data = await api.getAuctionsByTag(tag, 200, nameFilter, true, showEnded);
+                const data = await api.getAuctionsByTag(
+                    tag,
+                    200,
+                    nameFilter,
+                    filters.binOnly !== false, // Default to true
+                    filters.showEnded || false,
+                    filters.minStars,
+                    filters.maxStars,
+                    filters.enchantment,
+                    filters.minEnchantLevel,
+                    filters.minPrice,
+                    filters.maxPrice
+                );
                 setAuctions(data);
             } catch (err) {
                 console.error(err);
@@ -40,11 +52,13 @@ export default function ItemPage({ params }: ItemPageProps) {
         if (tag) {
             fetchAuctions();
         }
-    }, [tag, nameFilter, showEnded]);
+    }, [tag, nameFilter, filters]);
 
     const getFilteredAuctions = () => {
         const sorted = [...auctions];
-        switch (filter) {
+        const sortBy = filters.sortBy || 'lowest';
+
+        switch (sortBy) {
             case 'lowest':
                 sorted.sort((a, b) => a.price - b.price);
                 break;
@@ -108,25 +122,10 @@ export default function ItemPage({ params }: ItemPageProps) {
                 </div>
             )}
 
-            <div className="mb-4 d-flex justify-content-end gap-2">
-                <Button
-                    variant={showEnded ? "outline-warning" : "outline-secondary"}
-                    onClick={() => setShowEnded(!showEnded)}
-                    size="sm"
-                >
-                    {showEnded ? "Showing Ended" : "Hide Ended"}
-                </Button>
-                <Form.Select
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value as any)}
-                    style={{ maxWidth: '200px' }}
-                    className="bg-dark text-light border-secondary"
-                >
-                    <option value="lowest">Lowest Price</option>
-                    <option value="highest">Highest Price</option>
-                    <option value="ending">Ending Soon</option>
-                </Form.Select>
-            </div>
+            <ItemFilterPanel
+                initialFilters={filters}
+                onFilterChange={(newFilters) => setFilters(newFilters)}
+            />
 
             {filteredAuctions.length === 0 ? (
                 <Alert variant="info" className="bg-dark text-light border-secondary">No active auctions found for this item.</Alert>

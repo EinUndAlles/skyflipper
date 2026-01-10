@@ -19,12 +19,42 @@ export interface Auction {
     itemCreatedAt?: string;
     enchantments?: Enchantment[];
     flatenedNBTJson?: string;
+    nbtLookups?: NBTLookup[];
     texture?: string;
+    bids?: Bid[];
 }
 
 export interface Enchantment {
-    name: string;
+    type: string | number; // Enchantment type enum value (e.g., "sharpness", "protection") or number
     level: number;
+}
+
+export interface NBTLookup {
+    id: number;
+    keyId?: number;
+    key?: string;
+    valueNumeric?: number;
+    valueString?: string;
+    valueId?: number;
+    nbtKey?: NBTKey;
+    nbtValue?: NBTValue;
+}
+
+export interface NBTKey {
+    id: number;
+    keyName: string;
+}
+
+export interface NBTValue {
+    id: number;
+    value: string;
+}
+
+export interface Bid {
+    id: number;
+    bidderId: string;
+    amount: number;
+    timestamp: string;
 }
 
 export interface Stats {

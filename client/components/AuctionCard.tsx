@@ -74,7 +74,7 @@ export default function AuctionCard({ auction }: Props) {
                 >
                     {auction.itemName}
                 </Card.Title>
-                <Badge bg="dark" className="mb-3" style={{ color: rarityColor, borderColor: rarityColor, border: '1px solid' }}>
+                <Badge bg="dark" className="mb-3" style={{ color: rarityColor, border: `1px solid ${rarityColor}` }}>
                     {rarityName}
                 </Badge>
 

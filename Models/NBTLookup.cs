@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace SkyFlipperSolo.Models;
 
@@ -17,6 +18,8 @@ public class NBTLookup
     /// Foreign key to the auction this lookup belongs to.
     /// </summary>
     public int AuctionId { get; set; }
+    
+    [JsonIgnore] // Prevent circular reference during serialization
     public Auction Auction { get; set; } = null!;
 
     /// <summary>

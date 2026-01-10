@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace SkyFlipperSolo.Models;
 
@@ -19,6 +20,7 @@ public class Enchantment
     public int AuctionId { get; set; }
 
     [ForeignKey("AuctionId")]
+    [JsonIgnore] // Prevent circular reference during serialization
     public Auction? Auction { get; set; }
 
     public Enchantment() { }

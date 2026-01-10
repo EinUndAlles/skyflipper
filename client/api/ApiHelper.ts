@@ -49,10 +49,25 @@ export const api = {
         limit: number = 200,
         filter?: string,
         binOnly: boolean = true,
-        showEnded: boolean = false
+        showEnded: boolean = false,
+        minStars?: number,
+        maxStars?: number,
+        enchantment?: string,
+        minEnchantLevel?: number,
+        minPrice?: number,
+        maxPrice?: number
     ): Promise<Auction[]> => {
+        const params: any = { limit, binOnly, showEnded };
+        if (filter) params.filter = filter;
+        if (minStars !== undefined) params.minStars = minStars;
+        if (maxStars !== undefined) params.maxStars = maxStars;
+        if (enchantment) params.enchantment = enchantment;
+        if (minEnchantLevel !== undefined) params.minEnchantLevel = minEnchantLevel;
+        if (minPrice !== undefined) params.minPrice = minPrice;
+        if (maxPrice !== undefined) params.maxPrice = maxPrice;
+
         const response = await axios.get<Auction[]>(`${API_BASE_URL}/auctions/by-tag/${tag}`, {
-            params: { limit, filter, binOnly, showEnded }
+            params
         });
         return response.data;
     },

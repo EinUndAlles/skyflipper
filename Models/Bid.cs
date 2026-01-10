@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace SkyFlipperSolo.Models;
 
@@ -16,6 +17,8 @@ public class BidRecord
     /// Foreign key to auction this bid belongs to.
     /// </summary>
     public int AuctionId { get; set; }
+    
+    [JsonIgnore] // Prevent circular reference during serialization
     public Auction Auction { get; set; } = null!;
 
     /// <summary>

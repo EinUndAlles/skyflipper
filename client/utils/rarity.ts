@@ -14,6 +14,22 @@ export enum Tier {
     ADMIN = 11
 }
 
+// Map string tier names to enum values
+const TIER_STRING_TO_ENUM: Record<string, Tier> = {
+    'UNKNOWN': Tier.UNKNOWN,
+    'COMMON': Tier.COMMON,
+    'UNCOMMON': Tier.UNCOMMON,
+    'RARE': Tier.RARE,
+    'EPIC': Tier.EPIC,
+    'LEGENDARY': Tier.LEGENDARY,
+    'MYTHIC': Tier.MYTHIC,
+    'DIVINE': Tier.DIVINE,
+    'SPECIAL': Tier.SPECIAL,
+    'VERY_SPECIAL': Tier.VERY_SPECIAL,
+    'ULTIMATE': Tier.ULTIMATE,
+    'ADMIN': Tier.ADMIN
+};
+
 // Rarity color mapping (matching Hypixel Skyblock colors)
 export const RARITY_COLORS: Record<number, string> = {
     [Tier.UNKNOWN]: '#AAAAAA',
@@ -47,10 +63,22 @@ export const RARITY_NAMES: Record<number, string> = {
 };
 
 /**
+ * Convert tier (string or number) to numeric enum value
+ */
+function tierToNumber(tier: string | number): number {
+    if (typeof tier === 'number') {
+        return tier;
+    }
+    // If it's a string like "LEGENDARY", map it to the enum value
+    const upperTier = tier.toUpperCase();
+    return TIER_STRING_TO_ENUM[upperTier] ?? Tier.UNKNOWN;
+}
+
+/**
  * Get rarity color for a tier value
  */
 export function getRarityColor(tier: string | number): string {
-    const tierNum = typeof tier === 'string' ? parseInt(tier) : tier;
+    const tierNum = tierToNumber(tier);
     return RARITY_COLORS[tierNum] || RARITY_COLORS[Tier.COMMON];
 }
 
@@ -58,6 +86,20 @@ export function getRarityColor(tier: string | number): string {
  * Get rarity name for a tier value
  */
 export function getRarityName(tier: string | number): string {
-    const tierNum = typeof tier === 'string' ? parseInt(tier) : tier;
+    const tierNum = tierToNumber(tier);
     return RARITY_NAMES[tierNum] || RARITY_NAMES[Tier.UNKNOWN];
 }
+
+/**
+ * Get CSS style properties for tier coloring
+ * Matches reference project's getStyleForTier function
+ */
+export function getTierStyle(tier?: string | number): React.CSSProperties {
+    const color = tier !== undefined ? getRarityColor(tier) : RARITY_COLORS[Tier.COMMON];
+    return {
+        color,
+        fontFamily: 'monospace',
+        fontWeight: 'bold'
+    };
+}
+
