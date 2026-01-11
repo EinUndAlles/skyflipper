@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, use, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useEffect, useState, use, useMemo, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Container, Row, Col, Spinner, Alert } from 'react-bootstrap';
 import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { Auction } from '@/types';
@@ -10,9 +10,30 @@ import ItemFilterPanel from '@/components/ItemFilterPanel';
 import PriceHistoryChart from '@/components/PriceHistoryChart';
 import PriceSummary from '@/components/PriceSummary';
 import RecentAuctions from '@/components/RecentAuctions';
+import RelatedItems from '@/components/RelatedItems';
 import { ItemFilter, FilterOptions } from '@/types/filters';
 import { ItemFilter as PriceItemFilter } from '@/types/priceHistory';
 import { toast } from '@/components/ToastProvider';
+
+// Encode filters to base64 for URL
+const encodeFilters = (filters: ItemFilter): string => {
+    if (Object.keys(filters).length === 0) return '';
+    try {
+        return btoa(JSON.stringify(filters));
+    } catch {
+        return '';
+    }
+};
+
+// Decode filters from base64 URL param
+const decodeFilters = (encoded: string | null): ItemFilter => {
+    if (!encoded) return {};
+    try {
+        return JSON.parse(atob(encoded));
+    } catch {
+        return {};
+    }
+};
 
 interface ItemPageProps {
     params: Promise<{ tag: string }>;
@@ -39,18 +60,40 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
     const resolvedParams = use(params);
     const tag = resolvedParams.tag;
     const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
     const nameFilter = searchParams.get('filter') || undefined;
+    
+    // Initialize filters from URL
+    const urlFilters = searchParams.get('itemFilter');
+    const initialFilters = useMemo(() => decodeFilters(urlFilters), [urlFilters]);
 
     const [auctions, setAuctions] = useState<Auction[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [activeFilters, setActiveFilters] = useState<ItemFilter>({});
+    const [activeFilters, setActiveFilters] = useState<ItemFilter>(initialFilters);
     const [filterOptions, setFilterOptions] = useState<FilterOptions[]>([]);
+    
+    // Sync filters to URL when they change
+    const updateUrlWithFilters = useCallback((newFilters: ItemFilter) => {
+        const params = new URLSearchParams(searchParams.toString());
+        const encoded = encodeFilters(newFilters);
+        
+        if (encoded) {
+            params.set('itemFilter', encoded);
+        } else {
+            params.delete('itemFilter');
+        }
+        
+        const newUrl = `${pathname}?${params.toString()}`;
+        router.replace(newUrl, { scroll: false });
+    }, [pathname, router, searchParams]);
 
-    const handleFiltersChange = (newFilters: ItemFilter) => {
+    const handleFiltersChange = useCallback((newFilters: ItemFilter) => {
         console.log('Filters changed:', newFilters);
         setActiveFilters(newFilters);
-    };
+        updateUrlWithFilters(newFilters);
+    }, [updateUrlWithFilters]);
 
     // Fetch filter options on mount
     useEffect(() => {
@@ -224,7 +267,10 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
                 <RecentAuctions itemTag={tag} itemFilter={priceChartFilter} />
             </div>
 
-            {/* ===== SECTION 5: Auctions Section ===== */}
+            {/* ===== SECTION 5: Related Items ===== */}
+            <RelatedItems itemTag={tag} />
+
+            {/* ===== SECTION 6: Auctions Section ===== */}
             <div className="mb-3">
                 <h4 className="text-light mb-3">
                     Auctions

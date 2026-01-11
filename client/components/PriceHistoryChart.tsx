@@ -48,20 +48,50 @@ const dateRanges: { value: DateRange; label: string }[] = [
 // LocalStorage key for legend selection
 const LEGEND_STORAGE_KEY = 'priceGraphLegendSelection';
 
+// Default legend visibility
+const DEFAULT_LEGEND_SELECTION: Record<string, boolean> = { 
+    Price: true, 
+    'Moving Avg': true,
+    Min: false, 
+    Max: false, 
+    Volume: false 
+};
+
 // Get default legend selection from localStorage
 const getDefaultLegendSelection = (): Record<string, boolean> => {
     if (typeof window === 'undefined') {
-        return { Price: true, Min: true, Max: false, Volume: false };
+        return DEFAULT_LEGEND_SELECTION;
     }
     try {
         const saved = localStorage.getItem(LEGEND_STORAGE_KEY);
         if (saved) {
-            return JSON.parse(saved);
+            const parsed = JSON.parse(saved);
+            // Merge with defaults to handle new legend items
+            return { ...DEFAULT_LEGEND_SELECTION, ...parsed };
         }
     } catch (e) {
         // Ignore parse errors
     }
-    return { Price: true, Min: true, Max: false, Volume: false };
+    return DEFAULT_LEGEND_SELECTION;
+};
+
+// Calculate Simple Moving Average
+const calculateSMA = (data: number[], period: number): (number | null)[] => {
+    const result: (number | null)[] = [];
+    for (let i = 0; i < data.length; i++) {
+        if (i < period - 1) {
+            // Not enough data points yet
+            result.push(null);
+        } else {
+            // Calculate average of last 'period' values
+            let sum = 0;
+            for (let j = 0; j < period; j++) {
+                sum += data[i - j];
+            }
+            result.push(sum / period);
+        }
+    }
+    return result;
 };
 
 export default function PriceHistoryChart({
@@ -116,6 +146,11 @@ export default function PriceHistoryChart({
 
         const defaultSelection = getDefaultLegendSelection();
         
+        // Calculate moving average (5-period SMA for day, 7-period for week/month)
+        const maPeriod = dateRange === 'day' ? 5 : 7;
+        const avgPrices = priceData.map(item => item.avg);
+        const movingAvgData = calculateSMA(avgPrices, maPeriod);
+        
         // Prepare x-axis data as formatted strings
         const xAxisData = priceData.map(item => {
             const date = item.time instanceof Date ? item.time : new Date(item.time);
@@ -128,7 +163,7 @@ export default function PriceHistoryChart({
         return {
             backgroundColor: 'transparent',
             legend: {
-                data: ['Price', 'Min', 'Max', 'Volume'],
+                data: ['Price', 'Moving Avg', 'Min', 'Max', 'Volume'],
                 selected: defaultSelection,
                 textStyle: { color: '#aaa' },
                 top: 0,
@@ -244,6 +279,21 @@ export default function PriceHistoryChart({
                     symbol: 'circle',
                     symbolSize: 4,
                     showSymbol: false
+                },
+                {
+                    name: 'Moving Avg',
+                    type: 'line',
+                    data: movingAvgData,
+                    smooth: true,
+                    lineStyle: { 
+                        color: '#FFA500', 
+                        width: 2,
+                        type: 'dashed'
+                    },
+                    itemStyle: { color: '#FFA500' },
+                    symbol: 'none',
+                    showSymbol: false,
+                    connectNulls: true // Connect line across null values
                 },
                 {
                     name: 'Min',

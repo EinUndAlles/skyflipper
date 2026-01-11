@@ -902,4 +902,127 @@ public class AuctionsController : ControllerBase
             hasMore = (page + 1) * pageSize < total
         });
     }
+
+    /// <summary>
+    /// Get related items based on similar tags or category
+    /// </summary>
+    [HttpGet("item/{itemTag}/related")]
+    public async Task<IActionResult> GetRelatedItems(string itemTag, [FromQuery] int limit = 8)
+    {
+        var upperTag = itemTag.ToUpper();
+        
+        // Get info about the current item (category, tier, avg price)
+        var currentItem = await _context.Auctions
+            .Where(a => a.Tag == upperTag && a.Status == AuctionStatus.ACTIVE)
+            .Select(a => new { a.Category, a.Tier })
+            .FirstOrDefaultAsync();
+        
+        if (currentItem == null)
+        {
+            return Ok(new List<object>());
+        }
+
+        // Strategy 1: Find items with similar tag patterns
+        // Split the tag by underscore and find items that share common parts
+        var tagParts = upperTag.Split('_');
+        var relatedByTag = new List<object>();
+        var existingTags = new HashSet<string>(); // Track already added tags
+        
+        // For multi-part tags, find items that share key parts
+        // e.g., HYPERION shares "NECRON" base with ASTRAEA, SCYLLA, VALKYRIE
+        // e.g., ASPECT_OF_THE_VOID shares base with ASPECT_OF_THE_END
+        if (tagParts.Length >= 2)
+        {
+            // Build patterns to search for
+            var patterns = new List<string>();
+            
+            // For items like "ASPECT_OF_THE_END", search for "ASPECT_OF_THE"
+            if (tagParts.Length >= 3)
+            {
+                patterns.Add(string.Join("_", tagParts.Take(tagParts.Length - 1)));
+            }
+            
+            // Always add the first part as a pattern (e.g., "HYPERION" or "ASPECT")
+            if (tagParts[0].Length >= 3)
+            {
+                patterns.Add(tagParts[0]);
+            }
+            
+            foreach (var pattern in patterns)
+            {
+                if (relatedByTag.Count >= limit) break;
+                
+                var matches = await _context.Auctions
+                    .Where(a => a.Tag != upperTag) // Exclude current item
+                    .Where(a => a.Tag.Contains(pattern))
+                    .Where(a => a.Status == AuctionStatus.ACTIVE)
+                    .GroupBy(a => a.Tag)
+                    .Select(g => new 
+                    {
+                        Tag = g.Key,
+                        ItemName = g.First().ItemName,
+                        Tier = g.First().Tier,
+                        Category = g.First().Category,
+                        Texture = g.First().Texture,
+                        LowestPrice = g.Where(a => a.Bin).Min(a => (long?)a.StartingBid) ?? 
+                                     g.Min(a => a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid),
+                        Count = g.Count()
+                    })
+                    .Where(x => x.Count > 0)
+                    .OrderByDescending(x => x.Count)
+                    .Take(limit)
+                    .ToListAsync();
+                
+                // Add matches that aren't already in the list
+                foreach (var match in matches)
+                {
+                    if (!existingTags.Contains(match.Tag))
+                    {
+                        relatedByTag.Add(match);
+                        existingTags.Add(match.Tag);
+                        if (relatedByTag.Count >= limit) break;
+                    }
+                }
+            }
+        }
+        
+        // Strategy 2: If we don't have enough related items, find items in the same category
+        if (relatedByTag.Count < limit)
+        {
+            var categoryMatches = await _context.Auctions
+                .Where(a => a.Tag != upperTag)
+                .Where(a => a.Category == currentItem.Category)
+                .Where(a => a.Tier == currentItem.Tier) // Same tier for relevance
+                .Where(a => a.Status == AuctionStatus.ACTIVE)
+                .GroupBy(a => a.Tag)
+                .Select(g => new 
+                {
+                    Tag = g.Key,
+                    ItemName = g.First().ItemName,
+                    Tier = g.First().Tier,
+                    Category = g.First().Category,
+                    Texture = g.First().Texture,
+                    LowestPrice = g.Where(a => a.Bin).Min(a => (long?)a.StartingBid) ?? 
+                                 g.Min(a => a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid),
+                    Count = g.Count()
+                })
+                .Where(x => x.Count > 0)
+                .OrderByDescending(x => x.Count)
+                .Take(limit)
+                .ToListAsync();
+            
+            // Add category matches that aren't already in the list
+            foreach (var match in categoryMatches)
+            {
+                if (!existingTags.Contains(match.Tag))
+                {
+                    relatedByTag.Add(match);
+                    existingTags.Add(match.Tag);
+                    if (relatedByTag.Count >= limit) break;
+                }
+            }
+        }
+        
+        return Ok(relatedByTag.Take(limit));
+    }
 }

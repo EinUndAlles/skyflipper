@@ -206,5 +206,21 @@ export const api = {
         
         const response = await axios.get(`${API_BASE_URL}/auctions/item/${itemTag}/auctions/sold`, { params });
         return response.data;
+    },
+
+    // Get related items for an item
+    getRelatedItems: async (itemTag: string, limit: number = 8): Promise<{
+        tag: string;
+        itemName: string;
+        tier: string;
+        category: string;
+        texture: string | null;
+        lowestPrice: number;
+        count: number;
+    }[]> => {
+        const response = await axios.get(`${API_BASE_URL}/auctions/item/${itemTag}/related`, {
+            params: { limit }
+        });
+        return response.data;
     }
 };

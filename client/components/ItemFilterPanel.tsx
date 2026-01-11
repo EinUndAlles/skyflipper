@@ -15,6 +15,18 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
     const [itemFilter, setItemFilter] = useState<ItemFilter>(defaultFilter || {});
     const [expanded, setExpanded] = useState(false);
     const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+    
+    // Initialize selectedFilters based on defaultFilter keys
+    useEffect(() => {
+        if (defaultFilter) {
+            const filterKeys = Object.keys(defaultFilter);
+            if (filterKeys.length > 0) {
+                setSelectedFilters(filterKeys);
+                setExpanded(true); // Auto-expand if there are default filters
+            }
+            setItemFilter(defaultFilter);
+        }
+    }, [defaultFilter]);
 
     const handleFilterChange = (filterName: string, value: string) => {
         const newFilter = { ...itemFilter, [filterName]: value };
