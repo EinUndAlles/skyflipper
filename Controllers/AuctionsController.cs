@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
+using System.Net.Http;
+using System.Text.Json;
 
 namespace SkyFlipperSolo.Controllers;
 
@@ -13,15 +15,18 @@ public class AuctionsController : ControllerBase
     private readonly AppDbContext _context;
     private readonly ILogger<AuctionsController> _logger;
     private readonly PropertiesSelectorService _propertiesSelector;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public AuctionsController(
         AppDbContext context,
         ILogger<AuctionsController> logger,
-        PropertiesSelectorService propertiesSelector)
+        PropertiesSelectorService propertiesSelector,
+        IHttpClientFactory httpClientFactory)
     {
         _context = context;
         _logger = logger;
         _propertiesSelector = propertiesSelector;
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
@@ -1085,5 +1090,18 @@ public class AuctionsController : ControllerBase
         }
         
         return Ok(relatedByTag.Take(limit));
+    }
+
+    /// <summary>
+    /// Resolve a Minecraft UUID to username
+    /// Note: Requires Hypixel API key to be configured
+    /// </summary>
+    [HttpGet("player/{uuid}/name")]
+    public async Task<IActionResult> GetPlayerName(string uuid)
+    {
+        // For now, return a formatted fallback since we don't have API key configured
+        // In production, this would fetch from Hypixel API with proper authentication
+        var fallbackName = $"Player_{uuid.Substring(0, 8)}";
+        return Ok(new { name = fallbackName, note = "API key required for real usernames" });
     }
 }

@@ -85,6 +85,17 @@ export const api = {
         return response.data;
     },
 
+    getPlayerName: async (uuid: string): Promise<string> => {
+        try {
+            const response = await axios.get<{ name: string }>(`${API_BASE_URL}/auctions/player/${uuid}/name`);
+            return response.data.name;
+        } catch (error) {
+            console.warn('Failed to fetch player name for UUID:', uuid, error);
+            // Provide a more user-friendly fallback
+            return `Player_${uuid.substring(0, 8)}`; // More readable than just truncated UUID
+        }
+    },
+
     searchItems: async (query: string, limit: number = 10): Promise<{ itemName: string, tag: string, tier: string, texture?: string, filter?: string }[]> => {
         const response = await axios.get(`${API_BASE_URL}/auctions/search`, {
             params: { query, limit }

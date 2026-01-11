@@ -15,6 +15,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
     const { uuid } = use(params);
     const [auctionData, setAuctionData] = useState<AuctionWithProperties | null>(null);
     const [loading, setLoading] = useState(true);
+    const [sellerName, setSellerName] = useState<string>('');
 
     const handleCopyUUID = async () => {
         if (!auctionData) return;
@@ -32,6 +33,12 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
             try {
                 const data = await api.getAuction(uuid);
                 setAuctionData(data);
+
+                // Fetch seller name if auctioneerId exists
+                if (data.auctioneerId) {
+                    const name = await api.getPlayerName(data.auctioneerId);
+                    setSellerName(name);
+                }
             } catch (e) {
                 console.error(e);
                 toast.error('Failed to load auction details');
@@ -157,7 +164,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
                                     <div className="small text-muted text-uppercase">Seller</div>
                                     <div className="d-flex align-items-center justify-content-center mt-2">
                                         {sellerImage && <Image src={sellerImage} width={24} height={24} className="rounded-circle me-2" alt="Seller" unoptimized />}
-                                        <span className="fw-500 small font-monospace">{auctionData.auctioneerId ? auctionData.auctioneerId.substring(0, 8) : 'Unknown'}</span>
+                                        <span className="fw-500 small">{sellerName || (auctionData.auctioneerId ? 'Loading...' : 'Unknown')}</span>
                                     </div>
                                 </Col>
                                 <Col>
