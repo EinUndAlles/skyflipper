@@ -103,6 +103,7 @@ public class PriceAggregationService : BackgroundService
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTKey)
+            .Include(a => a.Bids) // For buyer deduplication
             .ToListAsync(stoppingToken);
 
         if (allAuctions.Count == 0)
@@ -194,11 +195,12 @@ public class PriceAggregationService : BackgroundService
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTKey)
+            .Include(a => a.Bids) // For buyer deduplication
             .ToListAsync(stoppingToken);
 
         // Apply anti-manipulation deduplication per reference:
         // 1. Dedupe by seller (take lowest price per seller to prevent artificial inflation)
-        // 2. Dedupe by buyer (if we had bid data - skip for now since we don't track bids)
+        // 2. Dedupe by buyer (take first per buyer to prevent wash trading)
         // 3. Dedupe by item UID (same item sold multiple times)
         // Reference: FlippingEngine.cs ApplyAntiMarketManipulation() lines 550-586
         var soldAuctions = ApplyAntiMarketManipulation(allAuctions);
@@ -450,8 +452,9 @@ public class PriceAggregationService : BackgroundService
     /// Reference: FlippingEngine.cs ApplyAntiMarketManipulation() lines 550-586
     /// 
     /// 1. Dedupe by seller - take lowest price per seller (prevents artificial price inflation)
-    /// 2. Dedupe by buyer - take first per buyer (would require bid data - simplified here)
+    /// 2. Dedupe by buyer - take first per buyer (prevents wash trading)
     /// 3. Dedupe by item UID - each physical item counted once
+    /// 4. Detect back-forth trading between same user pairs (for UID-less items)
     /// </summary>
     private static List<Auction> ApplyAntiMarketManipulation(List<Auction> auctions)
     {
@@ -461,23 +464,90 @@ public class PriceAggregationService : BackgroundService
         var counter = 1;
         
         // 1. Dedupe by seller (AuctioneerId) - take the LOWEST price per seller
-        // This prevents a single seller from artificially inflating prices
+        // Reference line 554-555: .GroupBy(a => a.SellerId).Select(a => a.OrderBy(s => s.HighestBidAmount).First())
         var dedupedBySeller = auctions
             .GroupBy(a => a.AuctioneerId ?? $"unknown_{counter++}")
             .Select(g => g.OrderBy(a => a.SoldPrice ?? a.StartingBid).First())
             .ToList();
 
-        // 2. Dedupe by item UID - each unique item counted once
-        // Takes the earliest sale if same item sold multiple times
+        // 2. Dedupe by buyer (highest bidder) - take first per buyer
+        // Reference line 556-557: .GroupBy(a => a.Bids.OrderByDescending(b => b.Amount).First().Bidder).Select(a => a.First())
         counter = 1;
-        var dedupedByUid = dedupedBySeller
+        var dedupedByBuyer = dedupedBySeller
+            .GroupBy(a => GetWinningBidder(a) ?? $"unknown_buyer_{counter++}")
+            .Select(g => g.First())
+            .ToList();
+
+        // 3. Dedupe by item UID - each unique item counted once
+        // Reference line 558-559: .GroupBy(a => a.FlatenedNBT.TryGetValue("uid", out string uid) ? uid : counter++.ToString())
+        counter = 1;
+        var dedupedByUid = dedupedByBuyer
             .GroupBy(a => a.ItemUid ?? $"no_uid_{counter++}")
             .Select(g => g.OrderBy(a => a.SoldAt ?? a.End).First())
             .ToList();
 
-        // Note: We don't have buyer/bid data in our model, so we skip buyer deduplication
-        // Reference also dedupes by buyer to prevent wash trading, but we'd need bid history
+        // 4. Detect back-forth trading for UID-less items
+        // Reference lines 561-576: Check for same buyer-seller pairs appearing multiple times
+        if (counter > 2) // We had items without UID
+        {
+            dedupedByUid = FilterBackForthTrading(dedupedByUid);
+        }
         
         return dedupedByUid;
+    }
+
+    /// <summary>
+    /// Gets the winning bidder (highest bidder) from an auction's bids.
+    /// </summary>
+    private static string? GetWinningBidder(Auction auction)
+    {
+        if (auction.Bids == null || auction.Bids.Count == 0)
+            return null;
+
+        return auction.Bids
+            .OrderByDescending(b => b.Amount)
+            .FirstOrDefault()?.BidderId;
+    }
+
+    /// <summary>
+    /// Filters out back-and-forth trading between the same user pairs.
+    /// Reference: FlippingEngine.cs lines 564-576
+    /// 
+    /// For items without UID, checks if the same buyer-seller pair appears multiple times,
+    /// which indicates wash trading to manipulate prices.
+    /// </summary>
+    private static List<Auction> FilterBackForthTrading(List<Auction> auctions)
+    {
+        // Create normalized buyer-seller pairs (sorted so order doesn't matter)
+        var tradePairs = auctions
+            .Select(a =>
+            {
+                var buyer = GetWinningBidder(a) ?? "";
+                var seller = a.AuctioneerId ?? "";
+                // Normalize order for consistent comparison
+                return string.Compare(buyer, seller, StringComparison.Ordinal) < 0 
+                    ? (buyer, seller) 
+                    : (seller, buyer);
+            })
+            .GroupBy(pair => pair)
+            .Where(g => g.Count() > 1) // Pairs that appear more than once
+            .Select(g => g.Key)
+            .ToHashSet();
+
+        if (tradePairs.Count == 0)
+            return auctions;
+
+        // Exclude all auctions from suspicious trading pairs
+        return auctions
+            .Where(a =>
+            {
+                var buyer = GetWinningBidder(a) ?? "";
+                var seller = a.AuctioneerId ?? "";
+                var pair = string.Compare(buyer, seller, StringComparison.Ordinal) < 0 
+                    ? (buyer, seller) 
+                    : (seller, buyer);
+                return !tradePairs.Contains(pair);
+            })
+            .ToList();
     }
 }

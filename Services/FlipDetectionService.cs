@@ -181,6 +181,14 @@ public class FlipDetectionService : BackgroundService
         // So we add gem value back to get effective median
         foreach (var auction in activeAuctions)
         {
+            // Reference: FlippingEngine.cs lines 535-536
+            // Skip Master Crypt Sols items - they have special value that's hard to price
+            // These items are filtered out unless the reference data specifically includes them
+            if (CacheKeyService.HasMasterCryptSols(auction))
+            {
+                continue;
+            }
+
             var cacheKey = _cacheKeyService.GeneratePriceCacheKey(auction);
             
             // Only proceed if we have exact cache key match with sufficient volume
