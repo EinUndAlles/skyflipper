@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
 using System.Net.Http;
 using System.Text.Json;
+using System.Web;
 
 namespace SkyFlipperSolo.Controllers;
 
@@ -16,17 +18,20 @@ public class AuctionsController : ControllerBase
     private readonly ILogger<AuctionsController> _logger;
     private readonly PropertiesSelectorService _propertiesSelector;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _configuration;
 
     public AuctionsController(
         AppDbContext context,
         ILogger<AuctionsController> logger,
         PropertiesSelectorService propertiesSelector,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration)
     {
         _context = context;
         _logger = logger;
         _propertiesSelector = propertiesSelector;
         _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -1093,15 +1098,63 @@ public class AuctionsController : ControllerBase
     }
 
     /// <summary>
-    /// Resolve a Minecraft UUID to username
-    /// Note: Requires Hypixel API key to be configured
+    /// Resolve a Minecraft UUID to username using Hypixel API
     /// </summary>
     [HttpGet("player/{uuid}/name")]
     public async Task<IActionResult> GetPlayerName(string uuid)
     {
-        // For now, return a formatted fallback since we don't have API key configured
-        // In production, this would fetch from Hypixel API with proper authentication
+        var apiKey = _configuration.GetValue<string>("HypixelApi:Key");
         var fallbackName = $"Player_{uuid.Substring(0, 8)}";
-        return Ok(new { name = fallbackName, note = "API key required for real usernames" });
+
+        // If no API key is configured, return formatted fallback
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            return Ok(new { name = fallbackName, note = "Hypixel API key not configured" });
+        }
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient("HypixelApi");
+
+            // Change the base address to the main Hypixel API for player endpoint
+            client.BaseAddress = new Uri("https://api.hypixel.net/");
+
+            var response = await client.GetAsync($"player?key={HttpUtility.UrlEncode(apiKey)}&uuid={uuid}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Hypixel API returned {StatusCode} for UUID {Uuid}", response.StatusCode, uuid);
+                return Ok(new { name = fallbackName, note = $"API error: {response.StatusCode}" });
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            var playerData = JsonSerializer.Deserialize<JsonElement>(content);
+
+            // Check if the API call was successful
+            if (playerData.TryGetProperty("success", out var success) && success.GetBoolean() == false)
+            {
+                var cause = playerData.TryGetProperty("cause", out var causeProp) ? causeProp.GetString() : "Unknown error";
+                return Ok(new { name = fallbackName, note = $"API error: {cause}" });
+            }
+
+            // Extract the display name
+            if (playerData.TryGetProperty("player", out var player) &&
+                player.TryGetProperty("displayname", out var displayName))
+            {
+                var actualName = displayName.GetString();
+                if (!string.IsNullOrEmpty(actualName))
+                {
+                    return Ok(new { name = actualName });
+                }
+            }
+
+            // Fallback if we couldn't find the display name
+            return Ok(new { name = fallbackName, note = "Display name not found in player data" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching player name for UUID {Uuid}", uuid);
+            return Ok(new { name = fallbackName, note = "Error fetching from API" });
+        }
     }
 }
