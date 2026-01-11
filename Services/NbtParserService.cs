@@ -139,6 +139,13 @@ public class NbtParserService
                 auction.Uuid, string.Join(", ", extraTag.Tags.Select(t => t.Name)));
         }
 
+        // Extract item UUID for deduplication
+        var itemUuid = extraTag.Get<NbtString>("uuid")?.StringValue;
+        if (!string.IsNullOrEmpty(itemUuid))
+        {
+            auction.ItemUid = itemUuid;
+        }
+
         // Extract enchantments
         auction.Enchantments = ParseEnchantments(extraTag);
 
@@ -309,6 +316,7 @@ public class NbtParserService
             "heldItem", // Pet item
             "exp", // Pet exp
             "level", // Pet level
+            "uuid", // Item UID for deduplication
         };
 
         foreach (var key in keysToExtract)

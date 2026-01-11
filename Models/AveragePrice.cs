@@ -19,6 +19,12 @@ public class AveragePrice
     public string ItemTag { get; set; } = string.Empty;
 
     /// <summary>
+    /// NBT-aware cache key for precise price comparison (includes stars, enchants, etc.)
+    /// </summary>
+    [MaxLength(200)]
+    public string CacheKey { get; set; } = string.Empty;
+
+    /// <summary>
     /// Timestamp of this aggregate (for hourly: hour start time, for daily: date at midnight)
     /// </summary>
     public DateTime Timestamp { get; set; }

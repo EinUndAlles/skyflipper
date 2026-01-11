@@ -53,9 +53,12 @@ builder.Services.AddSingleton<NbtParserService>();
 builder.Services.AddSingleton<NBTKeyService>(); // NBT key normalization service
 builder.Services.AddSingleton<NBTValueService>(); // NBT value deduplication service
 builder.Services.AddSingleton<ItemDetailsService>(); // Item metadata tracking
+builder.Services.AddSingleton<CacheKeyService>(); // NBT-aware cache key generation
+// Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
+builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management
 builder.Services.AddHostedService<FlipperService>();
-builder.Services.AddHostedService<SoldAuctionService>();
+builder.Services.AddHostedService<SoldAuctionService>(); // Keep for auctions_ended API integration
 builder.Services.AddHostedService<PriceAggregationService>();
 builder.Services.AddHostedService<FlipDetectionService>();
 
@@ -85,13 +88,29 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Time = DateTime
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    
-    // Always run migrations on startup
-    await dbContext.Database.MigrateAsync();
-    
-    // Seed common NBT keys
-    var nbtKeyService = scope.ServiceProvider.GetRequiredService<NBTKeyService>();
-    await nbtKeyService.SeedCommonKeys();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+    // Apply database migrations for full functionality
+    try
+    {
+        await dbContext.Database.MigrateAsync();
+        logger.LogInformation("Database migrations applied successfully");
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not apply migrations - some features may not work properly");
+    }
+
+    // Seed common NBT keys (only if database is accessible)
+    try
+    {
+        var nbtKeyService = scope.ServiceProvider.GetRequiredService<NBTKeyService>();
+        await nbtKeyService.SeedCommonKeys();
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not seed NBT keys - database may not be fully set up");
+    }
 }
 
 app.Run();

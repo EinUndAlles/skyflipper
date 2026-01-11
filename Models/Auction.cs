@@ -24,6 +24,12 @@ public class Auction
     public long UId { get; set; }
 
     /// <summary>
+    /// Item UID from NBT data for deduplication (prevents same physical item from skewing price history).
+    /// </summary>
+    [MaxLength(36)]
+    public string? ItemUid { get; set; }
+
+    /// <summary>
     /// The internal item tag (e.g., "HYPERION", "PET_DRAGON").
     /// </summary>
     [MaxLength(60)]

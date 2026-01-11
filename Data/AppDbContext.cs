@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
     public DbSet<BidRecord> BidRecords { get; set; }
     public DbSet<ItemDetails> ItemDetails { get; set; }
     public DbSet<AlternativeName> AlternativeNames { get; set; }
+    public DbSet<FlipHitCount> FlipHitCounts { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -36,8 +37,9 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.UId);
             entity.HasIndex(e => e.Tag);
             entity.HasIndex(e => e.End);
+            entity.HasIndex(e => e.ItemUid); // For UID deduplication
             entity.HasIndex(e => new { e.Tag, e.Tier, e.Reforge });
-            
+
             // Composite indexes for price history and flip detection
             entity.HasIndex(e => new { e.Tag, e.End });
             entity.HasIndex(e => new { e.Bin, e.Status, e.End });
@@ -81,11 +83,13 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AveragePrice>(entity =>
         {
             // Unique composite index for preventing duplicate aggregates
-            entity.HasIndex(e => new { e.ItemTag, e.Timestamp, e.Granularity }).IsUnique();
-            // Index for querying by item and granularity
-            entity.HasIndex(e => new { e.ItemTag, e.Granularity });
+            entity.HasIndex(e => new { e.CacheKey, e.Timestamp, e.Granularity }).IsUnique();
+            // Index for querying by cache key and granularity
+            entity.HasIndex(e => new { e.CacheKey, e.Granularity });
             // Index for timestamp-based queries
             entity.HasIndex(e => e.Timestamp);
+            // Keep ItemTag index for backward compatibility
+            entity.HasIndex(e => new { e.ItemTag, e.Granularity });
         });
 
         // FlipOpportunity configuration
@@ -166,6 +170,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AlternativeName>(entity =>
         {
             entity.HasIndex(a => a.Name);
+        });
+
+        // FlipHitCount configuration
+        modelBuilder.Entity<FlipHitCount>(entity =>
+        {
+            entity.HasIndex(e => e.CacheKey).IsUnique();
+            entity.HasIndex(e => e.LastHitAt);
+            entity.HasIndex(e => e.HitCount);
         });
     }
 }

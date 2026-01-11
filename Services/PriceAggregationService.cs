@@ -12,14 +12,17 @@ public class PriceAggregationService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PriceAggregationService> _logger;
+    private readonly CacheKeyService _cacheKeyService;
     private readonly TimeSpan _aggregationInterval = TimeSpan.FromMinutes(30); // Check every 30min
 
     public PriceAggregationService(
         IServiceScopeFactory scopeFactory,
-        ILogger<PriceAggregationService> logger)
+        ILogger<PriceAggregationService> logger,
+        CacheKeyService cacheKeyService)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _cacheKeyService = cacheKeyService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -78,14 +81,23 @@ public class PriceAggregationService : BackgroundService
             return;
         }
 
-        // Get sold auctions from the previous hour
-        var soldAuctions = await dbContext.Auctions
+        // Get sold auctions from the previous hour with full data for cache key generation
+        var allAuctions = await dbContext.Auctions
             .Where(a => a.Status == AuctionStatus.SOLD &&
                        a.SoldPrice.HasValue &&
                        a.End >= previousHour &&
                        a.End < currentHour)
-            .Select(a => new { a.Tag, a.SoldPrice })
+            .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(nbt => nbt.NBTKey)
             .ToListAsync(stoppingToken);
+
+        // Apply UID deduplication: for items with the same ItemUid, only take the earliest sale
+        // Note: ItemUid column may not exist in database yet - handle gracefully
+        var soldAuctions = allAuctions
+            .GroupBy(a => a.ItemUid ?? a.Uuid) // Fallback to auction UUID if no item UID
+            .Select(g => g.OrderBy(a => a.SoldAt ?? a.End).First()) // Take earliest sale
+            .ToList();
 
         if (soldAuctions.Count == 0)
         {
@@ -93,13 +105,18 @@ public class PriceAggregationService : BackgroundService
             return;
         }
 
-        // Group by tag and calculate statistics
+        // Group by cache key and calculate statistics
         var aggregates = soldAuctions
-            .GroupBy(a => a.Tag)
+            .Select(a => new
+            {
+                Auction = a,
+                CacheKey = _cacheKeyService.GeneratePriceCacheKey(a)
+            })
+            .GroupBy(x => x.CacheKey)
             .Select(g => new
             {
-                Tag = g.Key,
-                Prices = g.Select(a => (double)a.SoldPrice!.Value).ToList()
+                CacheKey = g.Key,
+                Prices = g.Select(x => (double)x.Auction.SoldPrice!.Value).ToList()
             })
             .ToList();
 
@@ -129,10 +146,10 @@ public class PriceAggregationService : BackgroundService
             .Where(p => p.Granularity == PriceGranularity.Hourly &&
                        p.Timestamp >= yesterday &&
                        p.Timestamp < today)
-            .GroupBy(p => p.ItemTag)
+            .GroupBy(p => p.CacheKey)
             .Select(g => new
             {
-                Tag = g.Key,
+                CacheKey = g.Key,
                 Min = g.Min(p => p.Min),
                 Max = g.Max(p => p.Max),
                 Medians = g.Select(p => p.Median).ToList(),
@@ -152,7 +169,8 @@ public class PriceAggregationService : BackgroundService
 
             var dailyAggregate = new AveragePrice
             {
-                ItemTag = item.Tag,
+                ItemTag = "", // Will be set when we parse the cache key, but not critical for daily aggregates
+                CacheKey = item.CacheKey,
                 Timestamp = yesterday,
                 Granularity = PriceGranularity.Daily,
                 Min = item.Min,
@@ -163,7 +181,7 @@ public class PriceAggregationService : BackgroundService
             };
 
             var existing = await dbContext.AveragePrices
-                .FirstOrDefaultAsync(p => p.ItemTag == item.Tag &&
+                .FirstOrDefaultAsync(p => p.CacheKey == item.CacheKey &&
                                          p.Timestamp == yesterday &&
                                          p.Granularity == PriceGranularity.Daily,
                     stoppingToken);
@@ -223,22 +241,23 @@ public class PriceAggregationService : BackgroundService
     {
         foreach (var item in aggregates)
         {
-            // Use reflection to get Tag and Prices properties
-            var tagProp = item.GetType().GetProperty("Tag");
+            // Use reflection to get CacheKey and Prices properties
+            var cacheKeyProp = item.GetType().GetProperty("CacheKey");
             var pricesProp = item.GetType().GetProperty("Prices");
-            
-            if (tagProp == null || pricesProp == null) continue;
-            
-            var tag = tagProp.GetValue(item) as string;
+
+            if (cacheKeyProp == null || pricesProp == null) continue;
+
+            var cacheKey = cacheKeyProp.GetValue(item) as string;
             var prices = pricesProp.GetValue(item) as List<double>;
-            
-            if (string.IsNullOrEmpty(tag) || prices == null || prices.Count == 0) continue;
+
+            if (string.IsNullOrEmpty(cacheKey) || prices == null || prices.Count == 0) continue;
 
             var sorted = prices.OrderBy(p => p).ToList();
 
             var avgPrice = new AveragePrice
             {
-                ItemTag = tag,
+                ItemTag = "", // CacheKey contains the tag info, but keep for backward compatibility
+                CacheKey = cacheKey,
                 Timestamp = timestamp,
                 Granularity = granularity,
                 Min = sorted.First(),
@@ -249,7 +268,7 @@ public class PriceAggregationService : BackgroundService
             };
 
             var existing = await dbContext.AveragePrices
-                .FirstOrDefaultAsync(p => p.ItemTag == tag &&
+                .FirstOrDefaultAsync(p => p.CacheKey == cacheKey &&
                                          p.Timestamp == timestamp &&
                                          p.Granularity == granularity,
                     stoppingToken);

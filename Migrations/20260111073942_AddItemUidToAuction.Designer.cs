@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SkyFlipperSolo.Data;
@@ -11,9 +12,11 @@ using SkyFlipperSolo.Data;
 namespace SkyFlipperSolo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260111073942_AddItemUidToAuction")]
+    partial class AddItemUidToAuction
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -316,40 +319,6 @@ namespace SkyFlipperSolo.Migrations
                     b.HasIndex("NotificationSent");
 
                     b.ToTable("Flips");
-                });
-
-            modelBuilder.Entity("SkyFlipperSolo.Models.FlipHitCount", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("CacheKey")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("HitCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("LastHitAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CacheKey")
-                        .IsUnique();
-
-                    b.HasIndex("HitCount");
-
-                    b.HasIndex("LastHitAt");
-
-                    b.ToTable("FlipHitCounts");
                 });
 
             modelBuilder.Entity("SkyFlipperSolo.Models.FlipOpportunity", b =>

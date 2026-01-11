@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SkyFlipperSolo.Data;
@@ -11,9 +12,11 @@ using SkyFlipperSolo.Data;
 namespace SkyFlipperSolo.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260111073737_AddCacheKeyToAveragePrice")]
+    partial class AddCacheKeyToAveragePrice
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -91,10 +94,6 @@ namespace SkyFlipperSolo.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
-                    b.Property<string>("ItemUid")
-                        .HasMaxLength(36)
-                        .HasColumnType("character varying(36)");
-
                     b.Property<int?>("NbtDataId")
                         .HasColumnType("integer");
 
@@ -139,8 +138,6 @@ namespace SkyFlipperSolo.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("End");
-
-                    b.HasIndex("ItemUid");
 
                     b.HasIndex("NbtDataId");
 
@@ -316,40 +313,6 @@ namespace SkyFlipperSolo.Migrations
                     b.HasIndex("NotificationSent");
 
                     b.ToTable("Flips");
-                });
-
-            modelBuilder.Entity("SkyFlipperSolo.Models.FlipHitCount", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("CacheKey")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("HitCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("LastHitAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CacheKey")
-                        .IsUnique();
-
-                    b.HasIndex("HitCount");
-
-                    b.HasIndex("LastHitAt");
-
-                    b.ToTable("FlipHitCounts");
                 });
 
             modelBuilder.Entity("SkyFlipperSolo.Models.FlipOpportunity", b =>
