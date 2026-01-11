@@ -100,6 +100,19 @@ public class CacheKeyService
     // Pet level regex for extracting level from item name - reference line 902-912
     private static readonly Regex PetLevelRegex = new Regex(@"\[Lvl (\d+)\]", RegexOptions.Compiled);
 
+    // Special item NBT keys that must always be included in cache key
+    // Reference: FlippingEngine.cs lines 676-704
+    private static readonly Dictionary<string, HashSet<string>> SpecialItemNbtKeys = new()
+    {
+        // Necrons Ladder - handles_found affects value
+        { "NECRONS_LADDER", new HashSet<string> { "handles_found" } },
+        // Dianas Bookshelf - chimera_found affects value  
+        { "DIANAS_BOOKSHELF", new HashSet<string> { "chimera_found" } },
+        // AOTV/AOTE - ethermerge is valuable
+        { "ASPECT_OF_THE_VOID", new HashSet<string> { "ethermerge" } },
+        { "ASPECT_OF_THE_END", new HashSet<string> { "ethermerge" } },
+    };
+
     // Reference: Constants.cs RelevantEnchants - COMPLETE list with minimum levels
     // Format: (EnchantmentType, MinLevel) - enchant is relevant if level >= MinLevel
     private static readonly Dictionary<EnchantmentType, byte> RelevantEnchants = new()
@@ -478,6 +491,15 @@ public class CacheKeyService
             // Cake Soul - captured_player - reference line 671
             if (key == "captured_player")
             {
+                nbtParts.Add($"[{key}, {value}]");
+                continue;
+            }
+
+            // Special item-specific NBT keys - reference lines 676-704
+            // These keys are critical for specific items (Necrons Ladder, Dianas Bookshelf, AOTV/AOTE)
+            if (SpecialItemNbtKeys.TryGetValue(auction.Tag, out var requiredKeys) && requiredKeys.Contains(key))
+            {
+                // Always include these keys exactly for their specific items
                 nbtParts.Add($"[{key}, {value}]");
                 continue;
             }
