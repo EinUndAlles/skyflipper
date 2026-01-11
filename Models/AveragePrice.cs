@@ -58,4 +58,11 @@ public class AveragePrice
     /// Number of sales in this period
     /// </summary>
     public int Volume { get; set; }
+
+    /// <summary>
+    /// Number of BIN sales in this period.
+    /// Used for BIN/Auction ratio check - if non-BIN > BIN*2, median is halved.
+    /// Reference: FlippingEngine.cs lines 273-278
+    /// </summary>
+    public int BinCount { get; set; }
 }

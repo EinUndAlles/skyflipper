@@ -29,6 +29,7 @@ public class FlipDetectionService : BackgroundService
     private const double HIT_COUNT_DECAY_FACTOR = 1.05; // 5% decay per hit
     private const int MAX_HIT_COUNT = 20; // Cap decay at 20 hits
     private const long MIN_ITEM_VALUE = 10000; // 10k minimum value
+    private static readonly TimeSpan HIT_COUNT_TTL = TimeSpan.FromHours(2); // Reference uses 2 hour TTL
 
     public FlipDetectionService(
         IServiceScopeFactory scopeFactory,
@@ -74,49 +75,80 @@ public class FlipDetectionService : BackgroundService
         var now = DateTime.UtcNow;
 
         // OPTIMIZATION: Pre-load all hit counts into memory dictionary
+        // Apply TTL: only include entries that were hit within the last 2 hours (reference behavior)
+        var hitCountCutoff = now - HIT_COUNT_TTL;
         var hitCountsDict = await dbContext.FlipHitCounts
             .AsNoTracking()
+            .Where(h => h.LastHitAt > hitCountCutoff)  // TTL filter
             .ToDictionaryAsync(h => h.CacheKey, h => h.HitCount, stoppingToken);
 
-        // Step 1: Get hourly prices from last 24 hours
-        var hourlyPrices = await dbContext.AveragePrices
-            .Where(p => p.Granularity == PriceGranularity.Hourly &&
-                       p.Timestamp > now.AddHours(-24) &&
-                       p.Volume >= MIN_SALES_THRESHOLD)
+        // Step 1: Get 15-minute prices (last 2 hours) for high-volume items - most responsive
+        var fifteenMinPrices = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.FifteenMinute &&
+                       p.Timestamp > now.AddHours(-2))
             .GroupBy(p => p.CacheKey)
             .Select(g => new
             {
                 CacheKey = g.Key,
                 Medians = g.OrderByDescending(p => p.Timestamp).Select(p => p.Median).ToList(),
                 Volume = g.Sum(p => p.Volume),
-                IsRecent = true
+                BinCount = g.Sum(p => p.BinCount),
+                DataSource = "15min (2h)"
             })
             .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
 
-        // Step 2: Get daily prices for cache keys not in hourly
-        var hourlyCacheKeys = hourlyPrices.Keys.ToList();
+        // Step 2: Get hourly prices from last 24 hours
+        var fifteenMinCacheKeys = fifteenMinPrices.Keys.ToList();
+        var hourlyPrices = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.Hourly &&
+                       p.Timestamp > now.AddHours(-24) &&
+                       p.Volume >= MIN_SALES_THRESHOLD &&
+                       !fifteenMinCacheKeys.Contains(p.CacheKey))
+            .GroupBy(p => p.CacheKey)
+            .Select(g => new
+            {
+                CacheKey = g.Key,
+                Medians = g.OrderByDescending(p => p.Timestamp).Select(p => p.Median).ToList(),
+                Volume = g.Sum(p => p.Volume),
+                BinCount = g.Sum(p => p.BinCount),
+                DataSource = "Hourly (24h)"
+            })
+            .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
+
+        // Step 3: Get daily prices for cache keys not in hourly or 15-min
+        var existingCacheKeys = fifteenMinCacheKeys.Concat(hourlyPrices.Keys).ToList();
         var dailyPrices = await dbContext.AveragePrices
             .Where(p => p.Granularity == PriceGranularity.Daily &&
                        p.Timestamp > now.AddDays(-PRICE_HISTORY_DAYS) &&
                        p.Volume >= MIN_SALES_THRESHOLD &&
-                       !hourlyCacheKeys.Contains(p.CacheKey))
+                       !existingCacheKeys.Contains(p.CacheKey))
             .GroupBy(p => p.CacheKey)
             .Select(g => new
             {
                 CacheKey = g.Key,
                 Medians = g.OrderByDescending(p => p.Timestamp).Select(p => p.Median).ToList(),
                 Volume = g.Sum(p => p.Volume),
-                IsRecent = false
+                BinCount = g.Sum(p => p.BinCount),
+                DataSource = "Daily (7d)"
             })
             .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
 
-        // Step 3: Merge prices (hourly takes precedence)
-        var allPrices = new Dictionary<string, (double SafeMedian, int Volume, bool IsRecent)>();
+        // Step 4: Merge prices (15-min > hourly > daily)
+        var allPrices = new Dictionary<string, (double SafeMedian, int Volume, int BinCount, string DataSource)>();
+
+        foreach (var kvp in fifteenMinPrices)
+        {
+            var safeMedian = CalculateWeightedMedian(kvp.Value.Medians);
+            allPrices[kvp.Key] = (safeMedian, kvp.Value.Volume, kvp.Value.BinCount, kvp.Value.DataSource);
+        }
 
         foreach (var kvp in hourlyPrices)
         {
-            var safeMedian = CalculateWeightedMedian(kvp.Value.Medians);
-            allPrices[kvp.Key] = (safeMedian, kvp.Value.Volume, kvp.Value.IsRecent);
+            if (!allPrices.ContainsKey(kvp.Key))
+            {
+                var safeMedian = CalculateWeightedMedian(kvp.Value.Medians);
+                allPrices[kvp.Key] = (safeMedian, kvp.Value.Volume, kvp.Value.BinCount, kvp.Value.DataSource);
+            }
         }
 
         foreach (var kvp in dailyPrices)
@@ -124,7 +156,7 @@ public class FlipDetectionService : BackgroundService
             if (!allPrices.ContainsKey(kvp.Key))
             {
                 var safeMedian = CalculateWeightedMedian(kvp.Value.Medians);
-                allPrices[kvp.Key] = (safeMedian, kvp.Value.Volume, kvp.Value.IsRecent);
+                allPrices[kvp.Key] = (safeMedian, kvp.Value.Volume, kvp.Value.BinCount, kvp.Value.DataSource);
             }
         }
 
@@ -159,7 +191,15 @@ public class FlipDetectionService : BackgroundService
 
             // Base median from stored prices (gems already subtracted)
             var baseMedian = priceData.SafeMedian;
-            var dataSource = priceData.IsRecent ? "Hourly (24h)" : "Daily (7d)";
+            var dataSource = priceData.DataSource;
+            
+            // Reference: FlippingEngine.cs lines 273-278
+            // If more than 2/3 of sales were non-BIN auctions, halve the median
+            // This prevents manipulation via fake auction sales
+            if (priceData.Volume > priceData.BinCount * 2)
+            {
+                baseMedian /= 2;
+            }
             
             // Add gem value back to get effective target price
             // Reference: FlippingEngine.cs line 282, 340
@@ -247,6 +287,12 @@ public class FlipDetectionService : BackgroundService
         {
             await BatchUpdateHitCounts(dbContext, hitUpdates, stoppingToken);
         }
+
+        // Periodically cleanup expired hit counts (every ~10 cycles)
+        if (Random.Shared.Next(10) == 0)
+        {
+            await CleanupExpiredHitCounts(dbContext, stoppingToken);
+        }
     }
 
     private double CalculateWeightedMedian(List<double> medians)
@@ -317,5 +363,22 @@ public class FlipDetectionService : BackgroundService
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
+    }
+
+    /// <summary>
+    /// Cleans up hit count entries older than TTL.
+    /// Reference uses Redis TTL (2 hours), we simulate with periodic cleanup.
+    /// </summary>
+    private async Task CleanupExpiredHitCounts(AppDbContext dbContext, CancellationToken stoppingToken)
+    {
+        var cutoff = DateTime.UtcNow - HIT_COUNT_TTL;
+        var expiredCount = await dbContext.FlipHitCounts
+            .Where(h => h.LastHitAt < cutoff)
+            .ExecuteDeleteAsync(stoppingToken);
+        
+        if (expiredCount > 0)
+        {
+            _logger.LogDebug("🧹 Cleaned up {Count} expired hit count entries", expiredCount);
+        }
     }
 }

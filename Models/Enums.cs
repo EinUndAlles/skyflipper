@@ -44,10 +44,14 @@ public enum AuctionStatus
 }
 
 /// <summary>
-/// Represents the granularity of price data (hourly vs daily).
+/// Represents the granularity of price data.
+/// FifteenMinute: For high-volume items needing faster price updates
+/// Hourly: Standard granularity (7-day retention)
+/// Daily: Long-term aggregates (indefinite retention)
 /// </summary>
 public enum PriceGranularity
 {
+    FifteenMinute,
     Hourly,
     Daily
 }

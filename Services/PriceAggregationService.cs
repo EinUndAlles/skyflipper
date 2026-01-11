@@ -14,7 +14,10 @@ public class PriceAggregationService : BackgroundService
     private readonly ILogger<PriceAggregationService> _logger;
     private readonly CacheKeyService _cacheKeyService;
     private readonly ComponentValueService _componentValueService;
-    private readonly TimeSpan _aggregationInterval = TimeSpan.FromMinutes(30); // Check every 30min
+    private readonly TimeSpan _aggregationInterval = TimeSpan.FromMinutes(5); // Check every 5 min for 15-min aggregation
+    
+    // High-volume items get 15-minute aggregation for faster price updates
+    private const int HIGH_VOLUME_THRESHOLD = 10; // Items with 10+ sales per hour qualify
 
     public PriceAggregationService(
         IServiceScopeFactory scopeFactory,
@@ -30,23 +33,30 @@ public class PriceAggregationService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("PriceAggregationService starting (hourly + daily mode)...");
+        _logger.LogInformation("PriceAggregationService starting (15-min + hourly + daily mode)...");
 
         // Wait for initial data collection
-        await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
+        await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                // Aggregate last hour
-                await AggregateHourlyPrices(stoppingToken);
+                // 15-minute aggregation runs every cycle (for high-volume items)
+                await AggregateFifteenMinutePrices(stoppingToken);
+                
+                // Hourly aggregation - check if we need to aggregate the previous hour
+                var now = DateTime.UtcNow;
+                if (now.Minute < 10) // Within first 10 min of hour, aggregate previous hour
+                {
+                    await AggregateHourlyPrices(stoppingToken);
+                }
 
                 // Once per day at midnight UTC, aggregate daily and cleanup
-                if (DateTime.UtcNow.Hour == 0)
+                if (now.Hour == 0 && now.Minute < 10)
                 {
                     await AggregateDailyPrices(stoppingToken);
-                    await CleanupOldHourlyData(stoppingToken);
+                    await CleanupOldData(stoppingToken);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -58,6 +68,97 @@ public class PriceAggregationService : BackgroundService
         }
 
         _logger.LogInformation("PriceAggregationService stopped");
+    }
+
+    /// <summary>
+    /// Aggregates sold auctions from the previous 15 minutes into price records.
+    /// Only tracks high-volume items (those with sufficient sales per hour).
+    /// </summary>
+    private async Task AggregateFifteenMinutePrices(CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var now = DateTime.UtcNow;
+        // Round to 15-minute boundaries (0, 15, 30, 45)
+        var minuteSlot = (now.Minute / 15) * 15;
+        var currentSlot = new DateTime(now.Year, now.Month, now.Day, now.Hour, minuteSlot, 0, DateTimeKind.Utc);
+        var previousSlot = currentSlot.AddMinutes(-15);
+
+        // Check if we've already aggregated this slot
+        var existing = await dbContext.AveragePrices
+            .AnyAsync(p => p.Timestamp == previousSlot && p.Granularity == PriceGranularity.FifteenMinute, stoppingToken);
+
+        if (existing)
+        {
+            return; // Already aggregated
+        }
+
+        // Get sold auctions from the previous 15 minutes
+        var allAuctions = await dbContext.Auctions
+            .Where(a => a.Status == AuctionStatus.SOLD &&
+                       a.SoldPrice.HasValue &&
+                       a.End >= previousSlot &&
+                       a.End < currentSlot)
+            .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(nbt => nbt.NBTKey)
+            .ToListAsync(stoppingToken);
+
+        if (allAuctions.Count == 0)
+        {
+            return;
+        }
+
+        // Apply anti-manipulation
+        var soldAuctions = ApplyAntiMarketManipulation(allAuctions);
+
+        // Group by cache key
+        var aggregatesData = new List<(string CacheKey, List<double> Prices, int BinCount)>();
+        
+        foreach (var group in soldAuctions
+            .Select(a => new
+            {
+                Auction = a,
+                CacheKey = _cacheKeyService.GeneratePriceCacheKey(a)
+            })
+            .GroupBy(x => x.CacheKey))
+        {
+            var prices = new List<double>();
+            var binCount = 0;
+            foreach (var item in group)
+            {
+                var salePrice = (double)item.Auction.SoldPrice!.Value;
+                var (gemValue, _) = await _componentValueService.GetGemstoneValueOnly(item.Auction);
+                var baseValue = salePrice - gemValue;
+                prices.Add(Math.Max(baseValue, salePrice * 0.1));
+                
+                if (item.Auction.Bin)
+                    binCount++;
+            }
+            
+            // Only include items that would qualify as high-volume
+            // (at least 2 sales in 15 min = ~8+ sales/hour)
+            if (prices.Count >= 2)
+            {
+                aggregatesData.Add((group.Key, prices, binCount));
+            }
+        }
+
+        if (aggregatesData.Count == 0)
+        {
+            return;
+        }
+
+        var aggregates = aggregatesData
+            .Select(x => new { CacheKey = x.CacheKey, Prices = x.Prices, BinCount = x.BinCount })
+            .ToList();
+
+        await SavePriceAggregates(dbContext, aggregates, previousSlot, 
+            PriceGranularity.FifteenMinute, stoppingToken);
+
+        _logger.LogDebug("⚡ Aggregated 15-min prices for {Time}: {Count} high-volume items",
+            previousSlot.ToString("HH:mm"), aggregates.Count);
     }
 
     /// <summary>
@@ -95,12 +196,12 @@ public class PriceAggregationService : BackgroundService
                 .ThenInclude(nbt => nbt.NBTKey)
             .ToListAsync(stoppingToken);
 
-        // Apply UID deduplication: for items with the same ItemUid, only take the earliest sale
-        // Note: ItemUid column may not exist in database yet - handle gracefully
-        var soldAuctions = allAuctions
-            .GroupBy(a => a.ItemUid ?? a.Uuid) // Fallback to auction UUID if no item UID
-            .Select(g => g.OrderBy(a => a.SoldAt ?? a.End).First()) // Take earliest sale
-            .ToList();
+        // Apply anti-manipulation deduplication per reference:
+        // 1. Dedupe by seller (take lowest price per seller to prevent artificial inflation)
+        // 2. Dedupe by buyer (if we had bid data - skip for now since we don't track bids)
+        // 3. Dedupe by item UID (same item sold multiple times)
+        // Reference: FlippingEngine.cs ApplyAntiMarketManipulation() lines 550-586
+        var soldAuctions = ApplyAntiMarketManipulation(allAuctions);
 
         if (soldAuctions.Count == 0)
         {
@@ -111,7 +212,7 @@ public class PriceAggregationService : BackgroundService
         // Group by cache key and calculate statistics
         // CRITICAL: Subtract gem value from each sale to get "base item" price
         // This matches reference project: FlippingEngine.cs line 340
-        var aggregatesData = new List<(string CacheKey, List<double> Prices)>();
+        var aggregatesData = new List<(string CacheKey, List<double> Prices, int BinCount)>();
         
         foreach (var group in soldAuctions
             .Select(a => new
@@ -122,6 +223,7 @@ public class PriceAggregationService : BackgroundService
             .GroupBy(x => x.CacheKey))
         {
             var prices = new List<double>();
+            var binCount = 0;
             foreach (var item in group)
             {
                 var salePrice = (double)item.Auction.SoldPrice!.Value;
@@ -130,12 +232,16 @@ public class PriceAggregationService : BackgroundService
                 var baseValue = salePrice - gemValue;
                 // Don't allow negative base values
                 prices.Add(Math.Max(baseValue, salePrice * 0.1));
+                
+                // Track BIN count for ratio check
+                if (item.Auction.Bin)
+                    binCount++;
             }
-            aggregatesData.Add((group.Key, prices));
+            aggregatesData.Add((group.Key, prices, binCount));
         }
 
         var aggregates = aggregatesData
-            .Select(x => new { CacheKey = x.CacheKey, Prices = x.Prices })
+            .Select(x => new { CacheKey = x.CacheKey, Prices = x.Prices, BinCount = x.BinCount })
             .ToList();
 
         await SavePriceAggregates(dbContext, aggregates, previousHour, 
@@ -171,7 +277,8 @@ public class PriceAggregationService : BackgroundService
                 Min = g.Min(p => p.Min),
                 Max = g.Max(p => p.Max),
                 Medians = g.Select(p => p.Median).ToList(),
-                TotalVolume = g.Sum(p => p.Volume)
+                TotalVolume = g.Sum(p => p.Volume),
+                TotalBinCount = g.Sum(p => p.BinCount)
             })
             .ToListAsync(stoppingToken);
 
@@ -195,7 +302,8 @@ public class PriceAggregationService : BackgroundService
                 Max = item.Max,
                 Avg = item.Medians.Average(),
                 Median = CalculateMedian(item.Medians.OrderBy(m => m)),
-                Volume = item.TotalVolume
+                Volume = item.TotalVolume,
+                BinCount = item.TotalBinCount
             };
 
             var existing = await dbContext.AveragePrices
@@ -211,6 +319,7 @@ public class PriceAggregationService : BackgroundService
                 existing.Avg = dailyAggregate.Avg;
                 existing.Median = dailyAggregate.Median;
                 existing.Volume = dailyAggregate.Volume;
+                existing.BinCount = dailyAggregate.BinCount;
             }
             else
             {
@@ -224,26 +333,37 @@ public class PriceAggregationService : BackgroundService
     }
 
     /// <summary>
-    /// Deletes hourly price data older than 7 days.
+    /// Deletes old price data:
+    /// - 15-minute data older than 2 hours
+    /// - Hourly data older than 7 days
     /// Runs once per day at midnight UTC.
     /// </summary>
-    private async Task CleanupOldHourlyData(CancellationToken stoppingToken)
+    private async Task CleanupOldData(CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var cutoff = DateTime.UtcNow.AddDays(-7);
-        var oldHourly = await dbContext.AveragePrices
-            .Where(p => p.Granularity == PriceGranularity.Hourly && p.Timestamp < cutoff)
-            .ToListAsync(stoppingToken);
+        // Clean 15-minute data older than 2 hours
+        var fifteenMinCutoff = DateTime.UtcNow.AddHours(-2);
+        var oldFifteenMin = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.FifteenMinute && p.Timestamp < fifteenMinCutoff)
+            .ExecuteDeleteAsync(stoppingToken);
 
-        if (oldHourly.Count > 0)
+        if (oldFifteenMin > 0)
         {
-            dbContext.AveragePrices.RemoveRange(oldHourly);
-            await dbContext.SaveChangesAsync(stoppingToken);
+            _logger.LogInformation("🗑️ Cleaned up {Count} old 15-min records", oldFifteenMin);
+        }
 
+        // Clean hourly data older than 7 days
+        var hourlyCutoff = DateTime.UtcNow.AddDays(-7);
+        var oldHourly = await dbContext.AveragePrices
+            .Where(p => p.Granularity == PriceGranularity.Hourly && p.Timestamp < hourlyCutoff)
+            .ExecuteDeleteAsync(stoppingToken);
+
+        if (oldHourly > 0)
+        {
             _logger.LogInformation("🗑️ Cleaned up {Count} old hourly records (older than {Cutoff})",
-                oldHourly.Count, cutoff);
+                oldHourly, hourlyCutoff);
         }
     }
 
@@ -259,14 +379,16 @@ public class PriceAggregationService : BackgroundService
     {
         foreach (var item in aggregates)
         {
-            // Use reflection to get CacheKey and Prices properties
+            // Use reflection to get CacheKey, Prices, and BinCount properties
             var cacheKeyProp = item.GetType().GetProperty("CacheKey");
             var pricesProp = item.GetType().GetProperty("Prices");
+            var binCountProp = item.GetType().GetProperty("BinCount");
 
             if (cacheKeyProp == null || pricesProp == null) continue;
 
             var cacheKey = cacheKeyProp.GetValue(item) as string;
             var prices = pricesProp.GetValue(item) as List<double>;
+            var binCount = binCountProp?.GetValue(item) as int? ?? 0;
 
             if (string.IsNullOrEmpty(cacheKey) || prices == null || prices.Count == 0) continue;
 
@@ -282,7 +404,8 @@ public class PriceAggregationService : BackgroundService
                 Max = sorted.Last(),
                 Avg = sorted.Average(),
                 Median = CalculateMedian(sorted),
-                Volume = sorted.Count
+                Volume = sorted.Count,
+                BinCount = binCount
             };
 
             var existing = await dbContext.AveragePrices
@@ -298,6 +421,7 @@ public class PriceAggregationService : BackgroundService
                 existing.Avg = avgPrice.Avg;
                 existing.Median = avgPrice.Median;
                 existing.Volume = avgPrice.Volume;
+                existing.BinCount = avgPrice.BinCount;
             }
             else
             {
@@ -318,5 +442,42 @@ public class PriceAggregationService : BackgroundService
             return (sorted[mid - 1] + sorted[mid]) / 2.0;
         else
             return sorted[mid];
+    }
+
+    /// <summary>
+    /// Applies anti-market manipulation deduplication to auction list.
+    /// 
+    /// Reference: FlippingEngine.cs ApplyAntiMarketManipulation() lines 550-586
+    /// 
+    /// 1. Dedupe by seller - take lowest price per seller (prevents artificial price inflation)
+    /// 2. Dedupe by buyer - take first per buyer (would require bid data - simplified here)
+    /// 3. Dedupe by item UID - each physical item counted once
+    /// </summary>
+    private static List<Auction> ApplyAntiMarketManipulation(List<Auction> auctions)
+    {
+        if (auctions.Count <= 1)
+            return auctions;
+
+        var counter = 1;
+        
+        // 1. Dedupe by seller (AuctioneerId) - take the LOWEST price per seller
+        // This prevents a single seller from artificially inflating prices
+        var dedupedBySeller = auctions
+            .GroupBy(a => a.AuctioneerId ?? $"unknown_{counter++}")
+            .Select(g => g.OrderBy(a => a.SoldPrice ?? a.StartingBid).First())
+            .ToList();
+
+        // 2. Dedupe by item UID - each unique item counted once
+        // Takes the earliest sale if same item sold multiple times
+        counter = 1;
+        var dedupedByUid = dedupedBySeller
+            .GroupBy(a => a.ItemUid ?? $"no_uid_{counter++}")
+            .Select(g => g.OrderBy(a => a.SoldAt ?? a.End).First())
+            .ToList();
+
+        // Note: We don't have buyer/bid data in our model, so we skip buyer deduplication
+        // Reference also dedupes by buyer to prevent wash trading, but we'd need bid history
+        
+        return dedupedByUid;
     }
 }

@@ -28,6 +28,10 @@ public enum Reforge
     Suspicious,     // Suspicious Vial
     Warped,         // Warped Stone (AOTE/AOTV only)
     Withered,       // Wither Blood
+    AoteStone,      // Warped on AOTE (alternate form)
+    Coldfused,      // Cold Fusion (Terminator bow)
+    Moonglade,      // Moonglade (armor)
+    BloodShot,      // Blood Shot (bow)
     
     // ===== BOW REFORGES (Ranged) =====
     // Basic
