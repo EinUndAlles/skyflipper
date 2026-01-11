@@ -81,14 +81,13 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Time = DateTime
     .WithName("HealthCheck")
     .WithOpenApi();
 
-// Auto-migrate database and seed NBT keys in development
+// Auto-migrate database and seed NBT keys
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    if (app.Environment.IsDevelopment())
-    {
-        await dbContext.Database.MigrateAsync();
-    }
+    
+    // Always run migrations on startup
+    await dbContext.Database.MigrateAsync();
     
     // Seed common NBT keys
     var nbtKeyService = scope.ServiceProvider.GetRequiredService<NBTKeyService>();

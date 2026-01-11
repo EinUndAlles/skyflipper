@@ -576,11 +576,12 @@ public class AuctionsController : ControllerBase
         var end = DateTime.UtcNow;
         
         // Build base query for sold auctions
+        // Use SoldAt timestamp for when the auction was actually sold
         // Use SoldPrice if available (from auctions_ended API), otherwise HighestBidAmount
         var query = _context.Auctions
             .Where(a => a.Tag == upperTag)
-            .Where(a => a.End > start && a.End < end)
-            .Where(a => a.Status == AuctionStatus.SOLD || (a.HighestBidAmount > 0 && a.End < DateTime.UtcNow));
+            .Where(a => a.Status == AuctionStatus.SOLD && a.SoldAt != null)
+            .Where(a => a.SoldAt > start && a.SoldAt < end);
 
         // Apply filters if provided
         if (filters != null && filters.Count > 0)
@@ -597,7 +598,7 @@ public class AuctionsController : ControllerBase
                 // Group by date and hour for day/week views
                 // Use SoldPrice if available, otherwise HighestBidAmount
                 dbResult = await query
-                    .GroupBy(a => new { a.End.Date, a.End.Hour })
+                    .GroupBy(a => new { a.SoldAt!.Value.Date, a.SoldAt!.Value.Hour })
                     .Select(g => new 
                     {
                         Date = g.Key.Date,
@@ -615,7 +616,7 @@ public class AuctionsController : ControllerBase
                 // Group by date only for month view
                 // Use SoldPrice if available, otherwise HighestBidAmount
                 dbResult = await query
-                    .GroupBy(a => a.End.Date)
+                    .GroupBy(a => a.SoldAt!.Value.Date)
                     .Select(g => new 
                     {
                         Date = g.Key,

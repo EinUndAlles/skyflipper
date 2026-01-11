@@ -141,6 +141,11 @@ public class Auction
     public long? SoldPrice { get; set; }
 
     /// <summary>
+    /// When this auction was marked as sold. Used for price history queries.
+    /// </summary>
+    public DateTime? SoldAt { get; set; }
+
+    /// <summary>
     /// The Base64 encoded texture value for the skull (if applicable), or the skin URL.
     /// </summary>
     [MaxLength(500)]
