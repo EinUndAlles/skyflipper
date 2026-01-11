@@ -5,8 +5,9 @@ using SkyFlipperSolo.Models;
 namespace SkyFlipperSolo.Services;
 
 /// <summary>
-/// Service responsible for fetching Bazaar prices and calculating the value of item components
-/// (Gemstones, Scrolls, Recombs, etc.).
+/// Service responsible for fetching Bazaar prices and calculating gemstone values.
+/// Reference: GemPriceService.cs - Only gemstones are explicitly valued.
+/// All other components (recombs, scrolls, HPB, etc.) are matched via NBT-based cache keys.
 /// </summary>
 public class ComponentValueService
 {
@@ -16,28 +17,8 @@ public class ComponentValueService
     private const string BAZAAR_CACHE_KEY = "BazaarPrices";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
-    // Manual mapping of internal names to Bazaar product IDs
-    private static readonly Dictionary<string, string> ComponentMappings = new()
-    {
-        { "RECOMBOBULATOR_3000", "RECOMBOBULATOR_3000" },
-        { "HOT_POTATO_BOOK", "HOT_POTATO_BOOK" },
-        { "FUMING_POTATO_BOOK", "FUMING_POTATO_BOOK" },
-        { "ART_OF_WAR", "THE_ART_OF_WAR" },
-        { "FARMING_FOR_DUMMIES", "FARMING_FOR_DUMMIES" },
-        // Gemstones (fine, flawless, perfect)
-        { "RUBY", "RUBY" },
-        { "AMETHYST", "AMETHYST" },
-        { "JASPER", "JASPER" },
-        { "SAPPHIRE", "SAPPHIRE" },
-        { "AMBER", "AMBER" },
-        { "TOPAZ", "TOPAZ" },
-        { "JADE", "JADE" },
-        { "OPAL", "OPAL" },
-        // Scrolls (Necron Blade)
-        { "WITHER_SHIELD_SCROLL", "WITHER_SHIELD_SCROLL" },
-        { "IMPLOSION_SCROLL", "IMPLOSION_SCROLL" },
-        { "SHADOW_WARP_SCROLL", "SHADOW_WARP_SCROLL" }
-    };
+    // Gemstone types that can appear in items
+    private static readonly string[] GemTypes = { "RUBY", "AMETHYST", "JASPER", "SAPPHIRE", "AMBER", "TOPAZ", "JADE", "OPAL" };
 
     public ComponentValueService(
         IHttpClientFactory httpClientFactory,
@@ -50,66 +31,12 @@ public class ComponentValueService
     }
 
     /// <summary>
-    /// Calculates the value of significant components on an item.
+    /// Calculates the value of gemstones on an item.
+    /// Reference: GemPriceService.cs GetGemstoneWorth()
+    /// Only PERFECT and FLAWLESS gems add significant value.
+    /// Applies fee deduction: -500k for Perfect, -100k for Flawless.
     /// </summary>
-    public async Task<(long TotalValue, string Breakdown)> GetOrCalculateItemComponentValue(Auction auction)
-    {
-        var prices = await GetBazaarPrices();
-        if (prices == null) return (0, string.Empty);
-
-        long totalValue = 0;
-        var breakdownParts = new List<string>();
-
-        // 1. Check for Recombobulater
-        if (IsRecombobulated(auction))
-        {
-            if (prices.TryGetValue("RECOMBOBULATOR_3000", out var recombPrice))
-            {
-                totalValue += recombPrice;
-                breakdownParts.Add($"Recomb: +{FormatPrice(recombPrice)}");
-            }
-        }
-
-        // 2. Check for Gemstones
-        if (auction.NBTLookups != null)
-        {
-            var gemValue = CalculateGemstoneValue(auction, prices);
-            if (gemValue > 0)
-            {
-                totalValue += gemValue;
-                breakdownParts.Add($"Gems: +{FormatPrice(gemValue)}");
-            }
-        }
-
-        // 3. Check for Scrolls (Necron Blade)
-        var scrollValue = await CalculateScrollValue(auction, prices);
-        if (scrollValue > 0)
-        {
-            totalValue += scrollValue;
-            breakdownParts.Add($"Scrolls: +{FormatPrice(scrollValue)}");
-        }
-        
-        // 4. Art of War
-        var artOfWar = auction.NBTLookups?.FirstOrDefault(n => n.NBTKey?.KeyName == "art_of_war_count");
-        if (artOfWar?.ValueNumeric.HasValue == true && artOfWar.ValueNumeric.Value > 0)
-        {
-             if (prices.TryGetValue("THE_ART_OF_WAR", out var aowPrice))
-             {
-                 var val = aowPrice * (long)artOfWar.ValueNumeric.Value;
-                 totalValue += val;
-                 breakdownParts.Add($"AoW: +{FormatPrice(val)}");
-             }
-        }
-
-        return (totalValue, string.Join(", ", breakdownParts));
-    }
-
-    /// <summary>
-    /// Gets ONLY the gemstone value for an item.
-    /// Used by PriceAggregationService to subtract gem value from sale prices.
-    /// This matches the reference project's approach in FlippingEngine.cs line 340.
-    /// </summary>
-    public async Task<(long GemValue, string Breakdown)> GetGemstoneValueOnly(Auction auction)
+    public async Task<(long TotalValue, string Breakdown)> GetGemstoneValue(Auction auction)
     {
         var prices = await GetBazaarPrices();
         if (prices == null) return (0, string.Empty);
@@ -117,8 +44,82 @@ public class ComponentValueService
         if (auction.NBTLookups == null || !auction.NBTLookups.Any())
             return (0, string.Empty);
 
-        var gemValue = CalculateGemstoneValue(auction, prices);
-        return (gemValue, gemValue > 0 ? $"Gems: {FormatPrice(gemValue)}" : string.Empty);
+        long totalWorth = 0;
+        var breakdownParts = new List<string>();
+        
+        // Find all gem slots with PERFECT or FLAWLESS quality
+        var relevantGems = auction.NBTLookups
+            .Where(n => n.ValueString == "PERFECT" || n.ValueString == "FLAWLESS")
+            .ToList();
+
+        foreach (var gem in relevantGems)
+        {
+            if (gem.NBTKey == null) continue;
+            var keySlug = gem.NBTKey.KeyName.ToUpper();
+            string? gemType = null;
+
+            // Try to identify gem type directly from key name
+            foreach (var type in GemTypes)
+            {
+                if (keySlug.Contains(type))
+                {
+                    gemType = type;
+                    break;
+                }
+            }
+
+            // Reference: GemPriceService.cs lines 128-130
+            // Handle COMBAT/DEFENSIVE/UNIVERSAL slots - look up actual gem type
+            if (gemType == null && (keySlug.StartsWith("COMBAT") || keySlug.StartsWith("DEFENSIVE") || keySlug.StartsWith("UNIVERSAL")))
+            {
+                var gemTypeKey = gem.NBTKey.KeyName + "_gem";
+                var gemTypeEntry = auction.NBTLookups
+                    .FirstOrDefault(n => n.NBTKey?.KeyName.Equals(gemTypeKey, StringComparison.OrdinalIgnoreCase) == true);
+                
+                if (gemTypeEntry?.ValueString != null)
+                {
+                    gemType = gemTypeEntry.ValueString.ToUpper();
+                }
+            }
+
+            if (gemType == null) continue;
+
+            var priceKey = $"{gem.ValueString}_{gemType}_GEM";
+
+            if (prices.TryGetValue(priceKey, out long price))
+            {
+                var val = price;
+                // Reference: GemPriceService.cs lines 63-66 - fee deduction
+                if (gem.ValueString == "PERFECT") val -= 500_000;
+                else if (gem.ValueString == "FLAWLESS") val -= 100_000;
+
+                if (val > 0)
+                {
+                    totalWorth += val;
+                    breakdownParts.Add($"{gem.ValueString} {gemType}: +{FormatPrice(val)}");
+                }
+            }
+        }
+
+        var breakdown = breakdownParts.Any() ? string.Join(", ", breakdownParts) : string.Empty;
+        return (totalWorth, breakdown);
+    }
+
+    /// <summary>
+    /// Alias for backward compatibility with existing code.
+    /// </summary>
+    public async Task<(long GemValue, string Breakdown)> GetGemstoneValueOnly(Auction auction)
+    {
+        return await GetGemstoneValue(auction);
+    }
+
+    /// <summary>
+    /// Alias for backward compatibility - now only returns gem value.
+    /// Other components are matched via NBT keys, not valued separately.
+    /// </summary>
+    public async Task<(long TotalValue, string Breakdown)> GetOrCalculateItemComponentValue(Auction auction)
+    {
+        return await GetGemstoneValue(auction);
     }
 
     private async Task<Dictionary<string, long>?> GetBazaarPrices()
@@ -137,14 +138,14 @@ public class ComponentValueService
                 
                 var result = new Dictionary<string, long>();
                 
-                foreach (var mapping in ComponentMappings)
+                // Load gem prices for FLAWLESS and PERFECT tiers
+                foreach (var gemType in GemTypes)
                 {
-                    TryAddPrice(products, result, mapping.Value);
-                    TryAddPrice(products, result, "FINE_" + mapping.Value + "_GEM");
-                    TryAddPrice(products, result, "FLAWLESS_" + mapping.Value + "_GEM");
-                    TryAddPrice(products, result, "PERFECT_" + mapping.Value + "_GEM");
+                    TryAddPrice(products, result, $"FLAWLESS_{gemType}_GEM");
+                    TryAddPrice(products, result, $"PERFECT_{gemType}_GEM");
                 }
 
+                _logger.LogInformation("Loaded {Count} gem prices from Bazaar", result.Count);
                 return result;
             }
             catch (Exception ex)
@@ -167,107 +168,6 @@ public class ComponentValueService
                 }
             }
         }
-    }
-
-    /// <summary>
-    /// Gets the value of gemstones on an item, strictly matching reference project logic.
-    /// Only values PERFECT and FLAWLESS gems.
-    /// Applies fee deduction: -500k for Perfect, -100k for Flawless.
-    /// Handles COMBAT/DEFENSIVE/UNIVERSAL slots by looking up the actual gem type.
-    /// </summary>
-    private long CalculateGemstoneValue(Auction auction, Dictionary<string, long> prices)
-    {
-        if (auction.NBTLookups == null || !auction.NBTLookups.Any())
-            return 0;
-
-        long totalWorth = 0;
-        
-        // Find all gem slots with PERFECT or FLAWLESS quality
-        var relevantGems = auction.NBTLookups
-            .Where(n => n.ValueString == "PERFECT" || n.ValueString == "FLAWLESS")
-            .ToList();
-
-        foreach (var gem in relevantGems)
-        {
-            if (gem.NBTKey == null) continue;
-            var keySlug = gem.NBTKey.KeyName.ToUpper();
-            string gemType = "";
-
-            // First, try to identify gem type directly from key name
-            if (keySlug.Contains("AMBER")) gemType = "AMBER";
-            else if (keySlug.Contains("TOPAZ")) gemType = "TOPAZ";
-            else if (keySlug.Contains("JADE")) gemType = "JADE";
-            else if (keySlug.Contains("SAPPHIRE")) gemType = "SAPPHIRE";
-            else if (keySlug.Contains("AMETHYST")) gemType = "AMETHYST";
-            else if (keySlug.Contains("JASPER")) gemType = "JASPER";
-            else if (keySlug.Contains("RUBY")) gemType = "RUBY";
-            else if (keySlug.Contains("OPAL")) gemType = "OPAL";
-            // Reference project: Handle COMBAT/DEFENSIVE/UNIVERSAL slots
-            // These slots store the gem type in a separate NBT key: "{slotName}_gem"
-            else if (keySlug.StartsWith("COMBAT") || keySlug.StartsWith("DEFENSIVE") || keySlug.StartsWith("UNIVERSAL"))
-            {
-                // Look for the companion key that specifies the actual gem type
-                // e.g., "COMBAT_0" quality is PERFECT, "COMBAT_0_gem" = "JASPER"
-                var gemTypeKey = gem.NBTKey.KeyName + "_gem";
-                var gemTypeEntry = auction.NBTLookups
-                    .FirstOrDefault(n => n.NBTKey?.KeyName.Equals(gemTypeKey, StringComparison.OrdinalIgnoreCase) == true);
-                
-                if (gemTypeEntry?.ValueString != null)
-                {
-                    gemType = gemTypeEntry.ValueString.ToUpper();
-                }
-                else
-                {
-                    continue; // Can't determine gem type, skip
-                }
-            }
-            else 
-            {
-                continue; // Unknown gem slot
-            }
-
-            var priceKey = $"{gem.ValueString}_{gemType}_GEM"; 
-
-            if (prices.TryGetValue(priceKey, out long price))
-            {
-                var val = price;
-                // Reference project fee deduction (GemPriceService.cs lines 63-66)
-                if (gem.ValueString == "PERFECT") val -= 500_000;
-                else if (gem.ValueString == "FLAWLESS") val -= 100_000;
-
-                if (val > 0)
-                {
-                    totalWorth += val;
-                }
-            }
-        }
-
-        return totalWorth;
-    }
-
-    private async Task<long> CalculateScrollValue(Auction auction, Dictionary<string, long> prices)
-    {
-        long value = 0;
-        if (auction.NBTLookups == null) return 0;
-        
-        var scrolls = auction.NBTLookups
-            .Where(n => n.NBTKey?.KeyName == "ability_scroll")
-            .Select(n => n.ValueString)
-            .ToList();
-
-        foreach (var scroll in scrolls)
-        {
-            if (scroll != null && prices.TryGetValue(scroll, out var price))
-            {
-                value += price;
-            }
-        }
-        return value;
-    }
-
-    private bool IsRecombobulated(Auction auction)
-    {
-        return auction.NBTLookups?.Any(n => n.NBTKey?.KeyName == "rarity_upgrades" && n.ValueNumeric > 0) ?? false;
     }
 
     private string FormatPrice(long price)

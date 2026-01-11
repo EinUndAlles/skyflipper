@@ -7,11 +7,53 @@ namespace SkyFlipperSolo.Services;
 /// <summary>
 /// Service for generating NBT-aware cache keys for price comparison.
 /// Creates unique identifiers that represent items with identical value-affecting properties.
-/// Based on Coflnet's SkyFlipper cache key generation.
+/// Matches Coflnet's SkyFlipper FlippingEngine.cs GetCacheKey() logic exactly.
 /// </summary>
 public class CacheKeyService
 {
     private readonly ILogger<CacheKeyService> _logger;
+
+    // Reference: Constants.cs RelevantReforges - only these reforges significantly affect price
+    // Note: Some reforges from reference project may not exist in our enum - we only include what we have
+    private static readonly HashSet<Reforge> RelevantReforges = new()
+    {
+        Reforge.Gilded,
+        Reforge.Withered,
+        Reforge.Spiritual,
+        Reforge.Jaded,
+        Reforge.Warped,
+        Reforge.Toil,
+        Reforge.Fabled,
+        Reforge.Giant,
+        Reforge.Submerged,
+        Reforge.Renowned,
+        Reforge.Mossy,
+        Reforge.Rooted,
+        Reforge.Festive,
+        Reforge.Lustrous,
+        Reforge.Glacial
+        // Note: coldfused, moonglade, blood_shot not in our Reforge enum - omitted
+    };
+
+    // Reference: Constants.cs AttributeKeys - Kuudra/Crimson Isle attributes
+    private static readonly HashSet<string> AttributeKeys = new()
+    {
+        "lifeline", "breeze", "speed", "experience", "mana_pool",
+        "life_regeneration", "blazing_resistance", "arachno_resistance",
+        "undead_resistance", "blazing_fortune", "fishing_experience",
+        "double_hook", "infection", "trophy_hunter", "fisherman", "hunter",
+        "fishing_speed", "life_recovery", "ignition", "combo", "attack_speed",
+        "midas_touch", "mana_regeneration", "veteran", "mending", "ender_resistance",
+        "dominance", "ender", "mana_steal", "blazing", "elite", "arachno", "undead",
+        "warrior", "deadeye", "fortitude", "magic_find"
+    };
+
+    // NBT keys to ignore (per FlippingEngine.cs)
+    private static readonly HashSet<string> IgnoredNbtKeys = new()
+    {
+        "uid", "spawnedFor", "bossId", "exp", "uuid", "hpc", "active",
+        "uniqueId", "hideRightClick", "noMove", "hideInfo"
+    };
 
     public CacheKeyService(ILogger<CacheKeyService> logger)
     {
@@ -20,84 +62,40 @@ public class CacheKeyService
 
     /// <summary>
     /// Generates a cache key for price comparison that includes all value-affecting properties.
+    /// Reference: FlippingEngine.cs GetCacheKey() method
+    /// Key format: o{Tag}{ItemName}{Tier}{Count}{Reforge?}{Enchants}{FlattenedNBT}
     /// </summary>
     public string GeneratePriceCacheKey(Auction auction)
     {
         if (auction == null) throw new ArgumentNullException(nameof(auction));
 
         var keyBuilder = new StringBuilder();
+        
+        // Prefix 'o' like reference project
+        keyBuilder.Append('o');
         keyBuilder.Append(auction.Tag);
+        keyBuilder.Append(auction.ItemName ?? "");
+        keyBuilder.Append((int)auction.Tier);
+        keyBuilder.Append(auction.Count);
 
-        // Add stars/dungeon level
-        var stars = GetStars(auction);
-        if (stars > 0)
+        // Only include relevant reforges (per reference Constants.cs)
+        if (RelevantReforges.Contains(auction.Reforge))
         {
-            keyBuilder.Append($"_stars{stars}");
+            keyBuilder.Append(auction.Reforge.ToString());
         }
 
-        // Add recombobulated flag
-        if (IsRecombobulated(auction))
+        // Add enchantments - reference includes ALL enchants in key
+        var enchantHash = GetEnchantmentString(auction);
+        if (!string.IsNullOrEmpty(enchantHash))
         {
-            keyBuilder.Append("_recomb");
+            keyBuilder.Append(enchantHash);
         }
 
-        // Add reforge (if not None)
-        if (auction.Reforge != Reforge.None)
+        // Add all relevant NBT data (matching FlippingEngine.cs line 444)
+        var nbtString = GetFlattenedNbtString(auction);
+        if (!string.IsNullOrEmpty(nbtString))
         {
-            keyBuilder.Append($"_{auction.Reforge.ToString().ToLower()}");
-        }
-
-        // Handle pet-specific properties
-        if (IsPet(auction.Tag))
-        {
-            var petLevel = GetPetLevel(auction);
-            if (petLevel > 0)
-            {
-                // Group pets by level ranges (1-19, 20-39, 40-59, 60-79, 80-99, 100)
-                var levelGroup = GetPetLevelGroup(petLevel);
-                keyBuilder.Append($"_lvl{levelGroup}");
-            }
-
-            var heldItem = GetPetHeldItem(auction);
-            if (!string.IsNullOrEmpty(heldItem))
-            {
-                keyBuilder.Append($"_held{heldItem.ToLower()}");
-            }
-
-            var skin = GetPetSkin(auction);
-            if (!string.IsNullOrEmpty(skin))
-            {
-                keyBuilder.Append($"_skin{skin.ToLower()}");
-            }
-
-            var candyUsed = GetPetCandyUsed(auction);
-            if (candyUsed > 0)
-            {
-                keyBuilder.Append($"_candy{candyUsed}");
-            }
-        }
-        else
-        {
-            // Handle enchantments for non-pet items
-            var enchantHash = GetEnchantmentHash(auction);
-            if (!string.IsNullOrEmpty(enchantHash))
-            {
-                keyBuilder.Append($"_ench{enchantHash}");
-            }
-
-            // Add gemstones (only Perfect and Flawless add significant value)
-            var gemHash = GetGemstoneHash(auction);
-            if (!string.IsNullOrEmpty(gemHash))
-            {
-                keyBuilder.Append($"_gems{gemHash}");
-            }
-
-            // Add other value modifiers
-            var modifiers = GetValueModifiers(auction);
-            if (modifiers.Any())
-            {
-                keyBuilder.Append($"_mod{string.Join("", modifiers.OrderBy(m => m))}");
-            }
+            keyBuilder.Append(nbtString);
         }
 
         var cacheKey = keyBuilder.ToString();
@@ -107,286 +105,198 @@ public class CacheKeyService
     }
 
     /// <summary>
-    /// Generates a "base" cache key that excludes dynamic value modifiers (Enchants, Gems, Scrolls, Recombs).
-    /// Used for finding the base value of an item to add component value on top.
+    /// Generates a "base" cache key that excludes gemstones.
+    /// Used for finding the base value of an item when gems will be valued separately.
+    /// Reference: Used when no exact match found, to get base price + add gem value.
     /// </summary>
     public string GenerateBaseCacheKey(Auction auction)
     {
         if (auction == null) throw new ArgumentNullException(nameof(auction));
 
         var keyBuilder = new StringBuilder();
+        
+        keyBuilder.Append('o');
         keyBuilder.Append(auction.Tag);
+        keyBuilder.Append(auction.ItemName ?? "");
+        keyBuilder.Append((int)auction.Tier);
+        keyBuilder.Append(auction.Count);
 
-        // Add stars/dungeon level (stars represent permanent progression, usually want to compare same-star items)
-        var stars = GetStars(auction);
-        if (stars > 0)
+        if (RelevantReforges.Contains(auction.Reforge))
         {
-            keyBuilder.Append($"_stars{stars}");
+            keyBuilder.Append(auction.Reforge.ToString());
         }
 
-        // Exclude Recomb (handled by ComponentValueService)
-        // Exclude Reforge (value adds are minor or specific, safer to compare raw)
-        // Exclude Enchants
-        // Exclude Gems
-        // Exclude Modifiers (Scrolls, etc)
-
-        // For pets, base key should probably just include level group?
-        if (IsPet(auction.Tag))
+        var enchantHash = GetEnchantmentString(auction);
+        if (!string.IsNullOrEmpty(enchantHash))
         {
-             // Pets are hard to "componentize" except for held items/candies.
-             // Let's keep level group as part of base.
-            var petLevel = GetPetLevel(auction);
-            if (petLevel > 0)
-            {
-                var levelGroup = GetPetLevelGroup(petLevel);
-                keyBuilder.Append($"_lvl{levelGroup}");
-            }
-            // Exclude Skin, Held Item, Candy
+            keyBuilder.Append(enchantHash);
+        }
+
+        // Exclude gemstones from base key - they're valued separately
+        var nbtString = GetFlattenedNbtString(auction, excludeGems: true);
+        if (!string.IsNullOrEmpty(nbtString))
+        {
+            keyBuilder.Append(nbtString);
         }
 
         return keyBuilder.ToString();
     }
 
     /// <summary>
-    /// Gets the star level from NBT data.
+    /// Gets the enchantment string for cache key.
+    /// Reference: FlippingEngine.cs lines 440-443 - includes relevant enchants in key
     /// </summary>
-    private int GetStars(Auction auction)
+    private string GetEnchantmentString(Auction auction)
     {
-        if (auction.NBTLookups == null) return 0;
+        if (auction.Enchantments == null || !auction.Enchantments.Any())
+            return string.Empty;
 
-        // Try dungeon_item_level first (most common)
-        var dungeonLevel = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "dungeon_item_level" || n.NBTKey?.KeyName == "stars");
+        // Extract relevant enchants (high level or special)
+        var relevantEnchants = ExtractRelevantEnchants(auction.Enchantments);
 
-        if (dungeonLevel?.ValueNumeric.HasValue == true)
+        if (relevantEnchants.Count == 0)
         {
-            return (int)dungeonLevel.ValueNumeric.Value;
+            // If no relevant enchants, include all enchants in key
+            return string.Join("", auction.Enchantments
+                .OrderBy(e => e.Type.ToString())
+                .Select(e => $"{e.Type}{e.Level}"));
         }
-
-        // Try upgrade_level (alternative)
-        var upgradeLevel = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "upgrade_level");
-
-        return upgradeLevel?.ValueNumeric.HasValue == true ? (int)upgradeLevel.ValueNumeric.Value : 0;
+        else
+        {
+            // Only include relevant enchants
+            return string.Join("", relevantEnchants
+                .OrderBy(e => e.Type.ToString())
+                .Select(e => $"{e.Type}{e.Level}"));
+        }
     }
 
     /// <summary>
-    /// Checks if item is recombobulated.
+    /// Extracts enchantments that significantly affect price.
+    /// Reference: FlippingEngine.cs ExtractRelevantEnchants()
     /// </summary>
-    private bool IsRecombobulated(Auction auction)
+    private List<Enchantment> ExtractRelevantEnchants(ICollection<Enchantment> enchantments)
     {
-        if (auction.NBTLookups == null) return false;
+        if (enchantments == null) return new List<Enchantment>();
 
-        var recomb = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "rarity_upgrades");
+        return enchantments
+            .Where(e => IsRelevantEnchant(e.Type, e.Level))
+            .ToList();
+    }
 
-        return recomb?.ValueNumeric.HasValue == true && recomb.ValueNumeric.Value > 0;
+    /// <summary>
+    /// Checks if an enchantment is relevant for pricing.
+    /// Reference: Constants.cs RelevantEnchants - enchants at or above these levels matter
+    /// </summary>
+    private bool IsRelevantEnchant(EnchantmentType type, int level)
+    {
+        // Ultimate enchants are always relevant
+        if (type.ToString().StartsWith("ultimate_", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // High level enchants (6+) are generally relevant
+        if (level >= 6)
+            return true;
+
+        // Specific valuable enchants at lower levels
+        // Note: Only include enchants that exist in our EnchantmentType enum
+        return type switch
+        {
+            EnchantmentType.vicious when level >= 1 => true,
+            EnchantmentType.pristine when level >= 1 => true,
+            EnchantmentType.overload when level >= 2 => true,
+            EnchantmentType.compact when level >= 1 => true,
+            EnchantmentType.cultivating when level >= 1 => true,
+            EnchantmentType.divine_gift when level >= 1 => true,
+            EnchantmentType.dedication when level >= 1 => true,
+            EnchantmentType.expertise when level >= 1 => true,
+            EnchantmentType.first_strike when level >= 5 => true,
+            EnchantmentType.triple_strike when level >= 5 => true,
+            EnchantmentType.life_steal when level >= 5 => true,
+            EnchantmentType.looting when level >= 5 => true,
+            EnchantmentType.scavenger when level >= 5 => true,
+            EnchantmentType.syphon when level >= 5 => true,
+            EnchantmentType.chance when level >= 5 => true,
+            EnchantmentType.snipe when level >= 4 => true,
+            EnchantmentType.counter_strike when level >= 5 => true,
+            EnchantmentType.experience when level >= 5 => true,
+            // Note: smoldering, green_thumb, prosperity, pesterminator not in our enum - omitted
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Gets flattened NBT string for cache key.
+    /// Reference: FlippingEngine.cs line 444 - concatenates all non-ignored NBT
+    /// </summary>
+    private string GetFlattenedNbtString(Auction auction, bool excludeGems = false)
+    {
+        if (auction.NBTLookups == null || !auction.NBTLookups.Any())
+            return string.Empty;
+
+        var nbtParts = new List<string>();
+
+        foreach (var nbt in auction.NBTLookups.OrderBy(n => n.NBTKey?.KeyName))
+        {
+            if (nbt.NBTKey == null) continue;
+            var key = nbt.NBTKey.KeyName;
+
+            // Skip ignored keys
+            if (IgnoredNbtKeys.Contains(key))
+                continue;
+
+            // Skip gem-related keys if excluding gems
+            if (excludeGems && IsGemstoneKey(key))
+                continue;
+
+            // Format: key=value or key=numericValue
+            if (!string.IsNullOrEmpty(nbt.ValueString))
+            {
+                nbtParts.Add($"{key}={nbt.ValueString}");
+            }
+            else if (nbt.ValueNumeric.HasValue)
+            {
+                nbtParts.Add($"{key}={nbt.ValueNumeric.Value}");
+            }
+        }
+
+        return string.Join(",", nbtParts);
+    }
+
+    /// <summary>
+    /// Checks if an NBT key is gemstone-related.
+    /// </summary>
+    private bool IsGemstoneKey(string key)
+    {
+        var upper = key.ToUpperInvariant();
+        return upper.Contains("RUBY") || upper.Contains("AMBER") || upper.Contains("TOPAZ") ||
+               upper.Contains("JADE") || upper.Contains("SAPPHIRE") || upper.Contains("AMETHYST") ||
+               upper.Contains("JASPER") || upper.Contains("OPAL") ||
+               upper.StartsWith("COMBAT_") || upper.StartsWith("DEFENSIVE_") || upper.StartsWith("UNIVERSAL_") ||
+               upper == "UNLOCKED_SLOTS" || upper == "GEMSTONE_SLOTS";
     }
 
     /// <summary>
     /// Checks if the tag represents a pet.
     /// </summary>
-    private bool IsPet(string tag)
+    public bool IsPet(string tag)
     {
         return tag == "PET" || tag.StartsWith("PET_");
     }
 
     /// <summary>
-    /// Gets pet level from NBT data.
+    /// Checks if rarity matters for this item category/tag.
+    /// Reference: Constants.cs DoesRecombMatter()
     /// </summary>
-    private int GetPetLevel(Auction auction)
+    public bool DoesRecombMatter(Category category, string? tag)
     {
-        if (auction.NBTLookups == null) return 0;
-
-        var levelLookup = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "level");
-
-        return levelLookup?.ValueNumeric.HasValue == true ? (int)levelLookup.ValueNumeric.Value : 0;
-    }
-
-    /// <summary>
-    /// Groups pet levels into ranges for price comparison.
-    /// </summary>
-    private string GetPetLevelGroup(int level)
-    {
-        if (level >= 100) return "100";
-        if (level >= 80) return "80-99";
-        if (level >= 60) return "60-79";
-        if (level >= 40) return "40-59";
-        if (level >= 20) return "20-39";
-        return "1-19";
-    }
-
-    /// <summary>
-    /// Gets pet's held item.
-    /// </summary>
-    private string? GetPetHeldItem(Auction auction)
-    {
-        if (auction.NBTLookups == null) return null;
-
-        var heldItemLookup = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "heldItem");
-
-        return heldItemLookup?.ValueString;
-    }
-
-    /// <summary>
-    /// Gets pet skin.
-    /// </summary>
-    private string? GetPetSkin(Auction auction)
-    {
-        if (auction.NBTLookups == null) return null;
-
-        var skinLookup = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "skin");
-
-        return skinLookup?.ValueString;
-    }
-
-    /// <summary>
-    /// Gets pet candy used.
-    /// </summary>
-    private int GetPetCandyUsed(Auction auction)
-    {
-        if (auction.NBTLookups == null) return 0;
-
-        var candyLookup = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "candyUsed");
-
-        return candyLookup?.ValueNumeric.HasValue == true ? (int)candyLookup.ValueNumeric.Value : 0;
-    }
-
-    /// <summary>
-    /// Creates a hash of enchantments that affect item value.
-    /// Only includes high-level and special enchantments.
-    /// </summary>
-    private string GetEnchantmentHash(Auction auction)
-    {
-        if (auction.Enchantments == null || !auction.Enchantments.Any())
-            return string.Empty;
-
-        // Only include enchantments that significantly affect value
-        var valuableEnchants = auction.Enchantments
-            .Where(e => IsValuableEnchantment(e.Type, e.Level))
-            .OrderBy(e => e.Type.ToString())
-            .Select(e => $"{e.Type.ToString().ToLower()}{e.Level}")
-            .ToList();
-
-        if (!valuableEnchants.Any())
-            return string.Empty;
-
-        // Create a hash to keep cache keys manageable
-        var enchantString = string.Join(",", valuableEnchants);
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(enchantString));
-        return BitConverter.ToString(hash).Replace("-", "").Substring(0, 8).ToLower();
-    }
-
-    /// <summary>
-    /// Determines if an enchantment significantly affects item value.
-    /// </summary>
-    private bool IsValuableEnchantment(EnchantmentType type, int level)
-    {
-        // Ultimate enchants are always valuable
-        if (type.ToString().Contains("ULTIMATE"))
+        if (category == Category.WEAPON || category == Category.ARMOR || 
+            category == Category.ACCESSORIES || category == Category.UNKNOWN || tag == null)
             return true;
 
-        // High level enchants (7+) are valuable
-        if (level >= 7)
-            return true;
-
-        // Special valuable enchants
-        EnchantmentType[] valuableTypes = {
-            EnchantmentType.sharpness, EnchantmentType.protection, EnchantmentType.efficiency,
-            EnchantmentType.fortune, EnchantmentType.power, EnchantmentType.vicious,
-            EnchantmentType.first_strike, EnchantmentType.giant_killer, EnchantmentType.execute,
-            EnchantmentType.lethality, EnchantmentType.luck, EnchantmentType.looting,
-            EnchantmentType.scavenger, EnchantmentType.smite, EnchantmentType.bane_of_arthropods,
-            EnchantmentType.depth_strider, EnchantmentType.feather_falling
-        };
-
-        return valuableTypes.Contains(type) && level >= 5;
-    }
-
-    /// <summary>
-    /// Creates a hash of gemstones that affect item value.
-    /// Only Perfect and Flawless gems add significant value.
-    /// </summary>
-    private string GetGemstoneHash(Auction auction)
-    {
-        if (auction.NBTLookups == null) return string.Empty;
-
-        // Find all gem-related lookups
-        var gemLookups = auction.NBTLookups
-            .Where(n => n.NBTKey != null && (
-                n.NBTKey.KeyName.Contains("PERFECT") ||
-                n.NBTKey.KeyName.Contains("FLAWLESS") ||
-                n.NBTKey.KeyName.Contains("FINE") ||
-                n.NBTKey.KeyName.Contains("ROUGH")))
-            .Where(n => n.ValueString != null)
-            .OrderBy(n => n.NBTKey.KeyName)
-            .Select(n => $"{n.NBTKey.KeyName}:{n.ValueString}")
-            .ToList();
-
-        if (!gemLookups.Any())
-            return string.Empty;
-
-        // Create hash of gem configuration
-        var gemString = string.Join(",", gemLookups);
-        using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(gemString));
-        return BitConverter.ToString(hash).Replace("-", "").Substring(0, 8).ToLower();
-    }
-
-    /// <summary>
-    /// Gets other value-affecting modifiers.
-    /// </summary>
-    private List<string> GetValueModifiers(Auction auction)
-    {
-        var modifiers = new List<string>();
-
-        if (auction.NBTLookups == null) return modifiers;
-
-        // Hot potato books
-        var hotPotato = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "hot_potato_count");
-        if (hotPotato?.ValueNumeric.HasValue == true && hotPotato.ValueNumeric.Value > 0)
-        {
-            modifiers.Add($"hpb{(int)hotPotato.ValueNumeric.Value}");
-        }
-
-        // Art of war
-        var artOfWar = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "art_of_war_count");
-        if (artOfWar?.ValueNumeric.HasValue == true && artOfWar.ValueNumeric.Value > 0)
-        {
-            modifiers.Add($"aow{(int)artOfWar.ValueNumeric.Value}");
-        }
-
-        // Farming for dummies
-        var ffd = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "farming_for_dummies_count");
-        if (ffd?.ValueNumeric.HasValue == true && ffd.ValueNumeric.Value > 0)
-        {
-            modifiers.Add($"ffd{(int)ffd.ValueNumeric.Value}");
-        }
-
-        // Ethermerge
-        var ethermerge = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "ethermerge");
-        if (ethermerge?.ValueNumeric.HasValue == true && ethermerge.ValueNumeric.Value > 0)
-        {
-            modifiers.Add("ether");
-        }
-
-        // Winning bid (Midas)
-        var winningBid = auction.NBTLookups
-            .FirstOrDefault(n => n.NBTKey?.KeyName == "winning_bid");
-        if (winningBid?.ValueNumeric.HasValue == true && winningBid.ValueNumeric.Value > 0)
-        {
-            modifiers.Add($"midas{(int)winningBid.ValueNumeric.Value}");
-        }
-
-        return modifiers;
+        string[] endings = { "CLOAK", "NECKLACE", "BELT", "GLOVES", "BRACELET", "HOE", 
+                            "PICKAXE", "GAUNTLET", "WAND", "ROD", "DRILL", "INFINI_VACUUM", 
+                            "POWER_ORB", "GRIFFIN_UPGRADE_STONE_EPIC" };
+        
+        return endings.Any(e => tag.Contains(e));
     }
 }

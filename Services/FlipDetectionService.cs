@@ -83,7 +83,7 @@ public class FlipDetectionService : BackgroundService
             })
             .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
 
-        // Step 2: Get daily prices
+        // Step 2: Get daily prices for cache keys not in hourly
         var hourlyCacheKeys = hourlyPrices.Keys.ToList();
         var dailyPrices = await dbContext.AveragePrices
             .Where(p => p.Granularity == PriceGranularity.Daily &&
@@ -100,7 +100,7 @@ public class FlipDetectionService : BackgroundService
             })
             .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
 
-        // Step 3: Merge prices
+        // Step 3: Merge prices (hourly takes precedence)
         var allPrices = new Dictionary<string, (double SafeMedian, int Volume, bool IsRecent)>();
 
         foreach (var kvp in hourlyPrices)
@@ -118,7 +118,7 @@ public class FlipDetectionService : BackgroundService
             }
         }
 
-        // Step 4: Get active auctions
+        // Step 4: Get active BIN auctions
         var activeAuctions = await dbContext.Auctions
             .Where(a => a.Bin &&
                        a.Status == AuctionStatus.ACTIVE &&
@@ -128,75 +128,51 @@ public class FlipDetectionService : BackgroundService
                 .ThenInclude(nbt => nbt.NBTKey)
             .ToListAsync(stoppingToken);
 
-        var auctionsWithPrices = activeAuctions
-            .Select(a => new
-            {
-                Auction = a,
-                CacheKey = _cacheKeyService.GeneratePriceCacheKey(a)
-            })
-            .ToList();
-
         var flips = new List<FlipOpportunity>();
 
-        // Step 5: Calculate flips
-        foreach (var auctionData in auctionsWithPrices)
+        // Step 5: Calculate flips using NBT-based matching
+        // Reference: FlippingEngine.cs - match by exact cache key, add gem value back
+        // Stored medians have gem value SUBTRACTED (PriceAggregationService line 129-131)
+        // So we add gem value back to get effective median
+        foreach (var auction in activeAuctions)
         {
-            var auction = auctionData.Auction;
-            var cacheKey = auctionData.CacheKey;
+            var cacheKey = _cacheKeyService.GeneratePriceCacheKey(auction);
             
-            double effectiveMedian = 0;
-            string breakdown = "";
-            string dataSource = "";
+            // Only proceed if we have exact cache key match with sufficient volume
+            if (!allPrices.TryGetValue(cacheKey, out var priceData) || priceData.Volume < MIN_SALES_THRESHOLD)
+            {
+                continue; // No pricing data - skip
+            }
 
-            // 1. Try Exact Match
-            if (allPrices.TryGetValue(cacheKey, out var priceData) && priceData.Volume >= MIN_SALES_THRESHOLD)
-            {
-                effectiveMedian = priceData.SafeMedian;
-                dataSource = priceData.IsRecent ? "Hourly (24h)" : "Daily (7d)";
-            }
-            // 2. Try Base Match + Component Value
-            else
-            {
-                var baseKey = _cacheKeyService.GenerateBaseCacheKey(auction);
-                if (allPrices.TryGetValue(baseKey, out var basePriceData) && basePriceData.Volume >= MIN_SALES_THRESHOLD)
-                {
-                    var (compValue, compBreakdown) = await _componentValueService.GetOrCalculateItemComponentValue(auction);
-                    
-                    if (compValue > 0)
-                    {
-                        // Reference algorithm: BaseMedian * 0.9 + ComponentValue
-                        effectiveMedian = (basePriceData.SafeMedian * 0.9) + compValue;
-                        dataSource = "Component Calculated";
-                        breakdown = $"Base: {basePriceData.SafeMedian/1000000.0:F1}m, {compBreakdown}";
-                        // Use base key for hit count tracking
-                        cacheKey = baseKey; 
-                    }
-                    else
-                    {
-                        continue; // No exact match and no valuable components
-                    }
-                }
-                else
-                {
-                    continue; // No pricing data found
-                }
-            }
+            // Base median from stored prices (gems already subtracted)
+            var baseMedian = priceData.SafeMedian;
+            var dataSource = priceData.IsRecent ? "Hourly (24h)" : "Daily (7d)";
+            
+            // Add gem value back to get effective target price
+            // Reference: FlippingEngine.cs line 282, 340
+            var (gemValue, gemBreakdown) = await _componentValueService.GetGemstoneValue(auction);
+            var effectiveMedian = baseMedian + gemValue;
+            
+            var breakdown = gemValue > 0 
+                ? $"Base: {baseMedian/1_000_000.0:F1}m + Gems: {gemBreakdown}"
+                : "";
 
             var currentPrice = auction.HighestBidAmount > 0
                 ? auction.HighestBidAmount
                 : auction.StartingBid;
             
             // Apply hit count decay
+            // Reference: FlippingEngine.cs - reduces expected price based on how often this item type appears
             var decayedMedianPrice = await ApplyHitCountDecay(dbContext, cacheKey, effectiveMedian);
             
-            // Reference project (lines 284-287): Low-value items get 10% extra margin
+            // Reference project (lines 284-287): Low-value items get 10% extra margin requirement
             if (decayedMedianPrice < 1_000_000)
             {
                 decayedMedianPrice *= 0.9;
             }
             
             // Reference project (lines 311-315): Stack count multiplier
-            // Items with count > 1 should be priced cheaper per unit
+            // Items with count > 1 are harder to sell at full price
             if (auction.Count > 1)
             {
                 decayedMedianPrice *= 0.9 * auction.Count;
@@ -225,18 +201,18 @@ public class FlipDetectionService : BackgroundService
                     ValueBreakdown = breakdown
                 });
 
-                // Track this as a hit
+                // Track this as a hit for decay calculation
                 await RecordFlipHit(dbContext, cacheKey);
             }
         }
 
-        // Sort and limit
+        // Sort by profit margin and limit
         flips = flips
             .OrderByDescending(f => f.ProfitMarginPercent)
             .Take(MAX_FLIPS_TO_STORE)
             .ToList();
 
-        // Save
+        // Save flips (replace old ones)
         await dbContext.FlipOpportunities.ExecuteDeleteAsync(stoppingToken);
 
         if (flips.Count > 0)
