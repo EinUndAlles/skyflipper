@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Auction, Stats, TagCount } from '../types';
+import { Auction, AuctionWithProperties, Stats, TagCount } from '../types';
 import { ItemPrice, DateRange, ItemFilter } from '../types/priceHistory';
 
 const API_BASE_URL = 'http://localhost:5135/api';
@@ -80,8 +80,8 @@ export const api = {
         return response.data;
     },
 
-    getAuction: async (uuid: string): Promise<Auction> => {
-        const response = await axios.get<Auction>(`${API_BASE_URL}/auctions/${uuid}`);
+    getAuction: async (uuid: string): Promise<AuctionWithProperties> => {
+        const response = await axios.get<AuctionWithProperties>(`${API_BASE_URL}/auctions/${uuid}`);
         return response.data;
     },
 

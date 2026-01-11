@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
+using SkyFlipperSolo.Services;
 
 namespace SkyFlipperSolo.Controllers;
 
@@ -11,11 +12,16 @@ public class AuctionsController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly ILogger<AuctionsController> _logger;
+    private readonly PropertiesSelectorService _propertiesSelector;
 
-    public AuctionsController(AppDbContext context, ILogger<AuctionsController> logger)
+    public AuctionsController(
+        AppDbContext context,
+        ILogger<AuctionsController> logger,
+        PropertiesSelectorService propertiesSelector)
     {
         _context = context;
         _logger = logger;
+        _propertiesSelector = propertiesSelector;
     }
 
     /// <summary>
@@ -238,7 +244,62 @@ public class AuctionsController : ControllerBase
         if (auction == null)
             return NotFound();
 
-        return Ok(auction);
+        // Get formatted properties for display
+        List<ItemProperty> properties;
+        try
+        {
+            properties = _propertiesSelector.GetProperties(auction);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating properties for auction {Uuid}", auction.Uuid);
+            properties = new List<ItemProperty>();
+        }
+
+        // Create enhanced response with formatted properties
+        var response = new AuctionDetailResponse
+        {
+            // Original auction data
+            Id = auction.Id,
+            Uuid = auction.Uuid,
+            UId = auction.UId,
+            Tag = auction.Tag,
+            ItemName = auction.ItemName,
+            Count = auction.Count,
+            StartingBid = auction.StartingBid,
+            HighestBidAmount = auction.HighestBidAmount,
+            Bin = auction.Bin,
+            Start = auction.Start,
+            End = auction.End,
+            AuctioneerId = auction.AuctioneerId,
+            Tier = auction.Tier,
+            Category = auction.Category,
+            Reforge = auction.Reforge,
+            AnvilUses = auction.AnvilUses,
+            ItemCreatedAt = auction.ItemCreatedAt,
+            FetchedAt = auction.FetchedAt,
+            Status = auction.Status,
+            SoldPrice = auction.SoldPrice,
+            SoldAt = auction.SoldAt,
+            Texture = auction.Texture,
+            ItemUid = auction.ItemUid,
+
+            // Formatted properties for display
+            Properties = properties,
+
+            // Raw data for advanced users
+            Enchantments = auction.Enchantments,
+            NbtLookups = auction.NBTLookups?.Select(n => new
+            {
+                Key = n.NBTKey?.KeyName ?? n.Key,
+                ValueNumeric = n.ValueNumeric,
+                ValueString = n.ValueString,
+                Value = n.NBTValue?.Value
+            }).ToArray(),
+            Bids = auction.Bids
+        };
+
+        return Ok(response);
     }
 
     /// <summary>

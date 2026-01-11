@@ -71,3 +71,32 @@ export interface TagCount {
     tag: string;
     count: number;
 }
+
+export interface ItemProperty {
+    name: string;
+    value: string;
+    importance: number;
+    category: string;
+}
+
+export interface AuctionWithProperties extends Omit<Auction, 'enchantments' | 'nbtLookups' | 'bids'> {
+    // Original auction fields
+    id: number;
+    uid: number;
+    itemUid?: string;
+    status: string;
+    soldPrice?: number;
+    soldAt?: string;
+
+    // Formatted properties for display
+    properties: ItemProperty[];
+
+    // Raw data (available but not primary display)
+    enchantments?: Enchantment[];
+    nbtLookups?: {
+        key: string;
+        valueNumeric?: number;
+        valueString?: string;
+    }[];
+    bids?: Bid[];
+}

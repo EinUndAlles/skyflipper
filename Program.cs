@@ -54,6 +54,7 @@ builder.Services.AddSingleton<NBTKeyService>(); // NBT key normalization service
 builder.Services.AddSingleton<NBTValueService>(); // NBT value deduplication service
 builder.Services.AddSingleton<ItemDetailsService>(); // Item metadata tracking
 builder.Services.AddSingleton<CacheKeyService>(); // NBT-aware cache key generation
+builder.Services.AddSingleton<PropertiesSelectorService>(); // Item property formatting
 // Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management
