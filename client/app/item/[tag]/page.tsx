@@ -9,6 +9,7 @@ import AuctionCard from '@/components/AuctionCard';
 import ItemFilterPanel from '@/components/ItemFilterPanel';
 import PriceHistoryChart from '@/components/PriceHistoryChart';
 import { ItemFilter, FilterOptions } from '@/types/filters';
+import { ItemFilter as PriceItemFilter } from '@/types/priceHistory';
 import { toast } from '@/components/ToastProvider';
 
 interface ItemPageProps {
@@ -83,6 +84,29 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
             fetchAuctions();
         }
     }, [tag, nameFilter]);
+
+    // Convert UI filters to Coflnet API filter format for price chart
+    const priceChartFilter = useMemo((): PriceItemFilter => {
+        const filter: PriceItemFilter = {};
+        
+        // Map our filter keys to Coflnet's expected format
+        if (activeFilters.Rarity) {
+            filter.Rarity = activeFilters.Rarity;
+        }
+        if (activeFilters.Reforge) {
+            filter.Reforge = activeFilters.Reforge;
+        }
+        if (activeFilters.Enchantment) {
+            filter.Enchantment = activeFilters.Enchantment;
+        }
+        // Pet-specific: pass the name filter for pet level filtering
+        if (nameFilter) {
+            // Coflnet uses PetItem for pet name filtering
+            filter.PetItem = nameFilter;
+        }
+        
+        return filter;
+    }, [activeFilters, nameFilter]);
 
     // Client-side filter application
     const filteredAuctions = useMemo(() => {
@@ -187,7 +211,7 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
 
             {/* ===== SECTION 2: Price History Chart ===== */}
             <div className="mb-4">
-                <PriceHistoryChart itemTag={tag} defaultDays={30} />
+                <PriceHistoryChart itemTag={tag} itemFilter={priceChartFilter} />
             </div>
 
             {/* ===== SECTION 3: Auctions Section ===== */}

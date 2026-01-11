@@ -437,7 +437,7 @@ public class AuctionsController : ControllerBase
     }
 
     /// <summary>
-    /// Get price history for an item tag
+    /// Get price history for an item tag (from pre-aggregated data)
     /// </summary>
     [HttpGet("item/{tag}/price-history")]
     public async Task<IActionResult> GetPriceHistory(
@@ -506,6 +506,244 @@ public class AuctionsController : ControllerBase
                 LowestMin = priceData.Min(p => p.Min),
                 HighestMax = priceData.Max(p => p.Max)
             }
+        });
+    }
+
+    /// <summary>
+    /// Get price history for 1 day (hourly data points) - real-time from sold auctions
+    /// Matches the Coflnet API format: /api/item/price/{itemTag}/history/day
+    /// </summary>
+    [HttpGet("item/price/{itemTag}/history/day")]
+    [ResponseCache(Duration = 120, VaryByQueryKeys = new[] { "*" })]
+    public async Task<IActionResult> GetDayHistory(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        return await GetPriceHistoryFromAuctions(itemTag, TimeSpan.FromDays(1), true, filters);
+    }
+
+    /// <summary>
+    /// Get price history for 1 week (hourly data points) - real-time from sold auctions
+    /// </summary>
+    [HttpGet("item/price/{itemTag}/history/week")]
+    [ResponseCache(Duration = 1800, VaryByQueryKeys = new[] { "*" })]
+    public async Task<IActionResult> GetWeekHistory(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        return await GetPriceHistoryFromAuctions(itemTag, TimeSpan.FromDays(7), true, filters);
+    }
+
+    /// <summary>
+    /// Get price history for 1 month (daily data points) - real-time from sold auctions
+    /// </summary>
+    [HttpGet("item/price/{itemTag}/history/month")]
+    [ResponseCache(Duration = 7200, VaryByQueryKeys = new[] { "*" })]
+    public async Task<IActionResult> GetMonthHistory(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        return await GetPriceHistoryFromAuctions(itemTag, TimeSpan.FromDays(30), false, filters);
+    }
+
+    /// <summary>
+    /// Get full price history (daily data points) - from pre-aggregated table
+    /// </summary>
+    [HttpGet("item/price/{itemTag}/history/full")]
+    [ResponseCache(Duration = 7200)]
+    public async Task<IActionResult> GetFullHistory(string itemTag)
+    {
+        var upperTag = itemTag.ToUpper();
+        
+        var priceData = await _context.AveragePrices
+            .Where(p => p.ItemTag == upperTag && p.Granularity == PriceGranularity.Daily)
+            .OrderBy(p => p.Timestamp)
+            .Select(p => new 
+            {
+                time = p.Timestamp,
+                min = p.Min,
+                max = p.Max,
+                avg = p.Avg,
+                volume = p.Volume
+            })
+            .ToListAsync();
+
+        return Ok(priceData);
+    }
+
+    /// <summary>
+    /// Core method to get price history from sold auctions with filter support
+    /// This mimics the SkyBackendForFrontend PricesService.GetHistory() approach
+    /// </summary>
+    private async Task<IActionResult> GetPriceHistoryFromAuctions(
+        string itemTag, 
+        TimeSpan timeSpan, 
+        bool hourlyGrouping,
+        IDictionary<string, string>? filters = null)
+    {
+        var upperTag = itemTag.ToUpper();
+        var start = DateTime.UtcNow.Subtract(timeSpan);
+        var end = DateTime.UtcNow;
+        
+        // Build base query for sold auctions
+        var query = _context.Auctions
+            .Where(a => a.Tag == upperTag)
+            .Where(a => a.End > start && a.End < end)
+            .Where(a => a.HighestBidAmount > 0) // Only sold auctions
+            .Where(a => a.Status == AuctionStatus.SOLD || a.End < DateTime.UtcNow);
+
+        // Apply filters if provided
+        if (filters != null && filters.Count > 0)
+        {
+            query = ApplyFilters(query, filters);
+        }
+
+        try
+        {
+            List<dynamic> dbResult;
+            
+            if (hourlyGrouping)
+            {
+                // Group by date and hour for day/week views
+                dbResult = await query
+                    .GroupBy(a => new { a.End.Date, a.End.Hour })
+                    .Select(g => new 
+                    {
+                        Date = g.Key.Date,
+                        Hour = g.Key.Hour,
+                        Avg = g.Average(a => (double)a.HighestBidAmount),
+                        Max = g.Max(a => a.HighestBidAmount),
+                        Min = g.Min(a => a.HighestBidAmount),
+                        Volume = g.Count()
+                    })
+                    .OrderBy(x => x.Date).ThenBy(x => x.Hour)
+                    .ToListAsync<dynamic>();
+            }
+            else
+            {
+                // Group by date only for month view
+                dbResult = await query
+                    .GroupBy(a => a.End.Date)
+                    .Select(g => new 
+                    {
+                        Date = g.Key,
+                        Hour = 0,
+                        Avg = g.Average(a => (double)a.HighestBidAmount),
+                        Max = g.Max(a => a.HighestBidAmount),
+                        Min = g.Min(a => a.HighestBidAmount),
+                        Volume = g.Count()
+                    })
+                    .OrderBy(x => x.Date)
+                    .ToListAsync<dynamic>();
+            }
+
+            // Convert to response format matching Coflnet API
+            var result = dbResult.Select(r => new 
+            {
+                time = ((DateTime)r.Date).AddHours(r.Hour),
+                min = (long)r.Min,
+                max = (long)r.Max,
+                avg = r.Avg,
+                volume = (int)r.Volume
+            }).ToList();
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching price history for {Tag}", upperTag);
+            return Ok(new List<object>()); // Return empty on error
+        }
+    }
+
+    /// <summary>
+    /// Apply filters to auction query (simplified version of SkyFilter's FilterEngine)
+    /// </summary>
+    private IQueryable<Auction> ApplyFilters(IQueryable<Auction> query, IDictionary<string, string> filters)
+    {
+        foreach (var filter in filters)
+        {
+            if (string.IsNullOrEmpty(filter.Value))
+                continue;
+
+            switch (filter.Key.ToLower())
+            {
+                case "rarity":
+                    if (Enum.TryParse<Tier>(filter.Value, true, out var tier))
+                    {
+                        query = query.Where(a => a.Tier == tier);
+                    }
+                    break;
+                    
+                case "reforge":
+                    if (Enum.TryParse<Reforge>(filter.Value, true, out var reforge))
+                    {
+                        query = query.Where(a => a.Reforge == reforge);
+                    }
+                    break;
+                    
+                case "bin":
+                    if (bool.TryParse(filter.Value, out var binOnly))
+                    {
+                        query = query.Where(a => a.Bin == binOnly);
+                    }
+                    break;
+                    
+                case "petitem":
+                case "petname":
+                case "namefilter":
+                    // For pets, filter by name containing the value
+                    query = query.Where(a => a.ItemName.Contains(filter.Value));
+                    break;
+                    
+                // Add more filters as needed (Stars, Enchantments, etc.)
+            }
+        }
+        
+        return query;
+    }
+
+    /// <summary>
+    /// Get price summary for an item (current market data)
+    /// </summary>
+    [HttpGet("item/price/{itemTag}")]
+    [ResponseCache(Duration = 1800, VaryByQueryKeys = new[] { "*" })]
+    public async Task<IActionResult> GetPriceSummary(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        var upperTag = itemTag.ToUpper();
+        var days = 2;
+        var start = DateTime.UtcNow.AddDays(-days);
+        
+        var query = _context.Auctions
+            .Where(a => a.Tag == upperTag)
+            .Where(a => a.End > start && a.End < DateTime.UtcNow)
+            .Where(a => a.HighestBidAmount > 0);
+
+        if (filters != null && filters.Count > 0)
+        {
+            query = ApplyFilters(query, filters);
+        }
+
+        var prices = await query
+            .Select(a => a.HighestBidAmount)
+            .ToListAsync();
+
+        if (prices.Count == 0)
+        {
+            return Ok(new 
+            {
+                min = 0,
+                max = 0,
+                avg = 0,
+                med = 0,
+                volume = 0
+            });
+        }
+
+        var sorted = prices.OrderBy(p => p).ToList();
+        var median = sorted[sorted.Count / 2];
+
+        return Ok(new 
+        {
+            min = sorted.First(),
+            max = sorted.Last(),
+            avg = sorted.Average(),
+            med = median,
+            volume = sorted.Count / days
         });
     }
 }

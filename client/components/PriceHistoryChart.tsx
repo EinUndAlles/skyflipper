@@ -1,26 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Spinner, Alert, ButtonGroup, Button, Badge } from 'react-bootstrap';
-import {
-    Area,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    Bar,
-    ComposedChart,
-    Legend
-} from 'recharts';
+import { useEffect, useState, useRef } from 'react';
+import { Spinner, Alert, ButtonGroup, Button } from 'react-bootstrap';
+import ReactECharts from 'echarts-for-react';
 import { api } from '@/api/ApiHelper';
-import { PriceHistoryResponse } from '@/types/priceHistory';
+import { ItemPrice, DateRange, ItemFilter } from '@/types/priceHistory';
 
 interface PriceHistoryChartProps {
     itemTag: string;
-    defaultDays?: number;
-    defaultGranularity?: 'hourly' | 'daily';
+    itemFilter?: ItemFilter;
     height?: number;
+    onRangeChange?: (range: DateRange) => void;
 }
 
 // Format large numbers (1M, 1B, etc.)
@@ -37,61 +27,71 @@ const formatPrice = (value: number): string => {
     return value.toFixed(0);
 };
 
-// Format date for x-axis
-const formatDate = (timestamp: string, granularity: 'hourly' | 'daily'): string => {
-    const date = new Date(timestamp);
-    if (granularity === 'hourly') {
-        return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
-    }
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+// Format date for tooltip
+const formatDateTime = (date: Date): string => {
+    return date.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+    });
 };
 
-// Custom tooltip component
-const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-        const data = payload[0].payload;
-        return (
-            <div className="bg-dark border border-secondary rounded p-2" style={{ minWidth: '180px' }}>
-                <p className="mb-1 text-light fw-bold">
-                    {new Date(label).toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric'
-                    })}
-                </p>
-                <p className="mb-1 text-warning">Median: {formatPrice(data.median)}</p>
-                <p className="mb-1 text-info">Avg: {formatPrice(data.avg)}</p>
-                <p className="mb-1 text-success">Min: {formatPrice(data.min)}</p>
-                <p className="mb-1 text-danger">Max: {formatPrice(data.max)}</p>
-                <p className="mb-0 text-secondary">Volume: {data.volume}</p>
-            </div>
-        );
+// Date range options
+const dateRanges: { value: DateRange; label: string }[] = [
+    { value: 'day', label: '1 Day' },
+    { value: 'week', label: '1 Week' },
+    { value: 'month', label: '1 Month' },
+];
+
+// LocalStorage key for legend selection
+const LEGEND_STORAGE_KEY = 'priceGraphLegendSelection';
+
+// Get default legend selection from localStorage
+const getDefaultLegendSelection = (): Record<string, boolean> => {
+    if (typeof window === 'undefined') {
+        return { Price: true, Min: true, Max: false, Volume: false };
     }
-    return null;
+    try {
+        const saved = localStorage.getItem(LEGEND_STORAGE_KEY);
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        // Ignore parse errors
+    }
+    return { Price: true, Min: true, Max: false, Volume: false };
 };
 
 export default function PriceHistoryChart({
     itemTag,
-    defaultDays = 30,
-    defaultGranularity = 'daily',
-    height = 300
+    itemFilter,
+    height = 350,
+    onRangeChange
 }: PriceHistoryChartProps) {
-    const [priceData, setPriceData] = useState<PriceHistoryResponse | null>(null);
+    const [priceData, setPriceData] = useState<ItemPrice[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [days, setDays] = useState(defaultDays);
-    const [granularity, setGranularity] = useState<'hourly' | 'daily'>(defaultGranularity);
+    const [dateRange, setDateRange] = useState<DateRange>('week');
+    const chartRef = useRef<ReactECharts>(null);
 
+    // Fetch price data when tag, range, or filters change
     useEffect(() => {
         const fetchPriceHistory = async () => {
             try {
                 setLoading(true);
                 setError(null);
-                const data = await api.getPriceHistory(itemTag, days, granularity);
+                const data = await api.getItemPrices(itemTag, dateRange, itemFilter);
                 setPriceData(data);
-            } catch (err) {
+            } catch (err: any) {
                 console.error('Failed to load price history:', err);
-                setError('Failed to load price history');
+                if (err.response?.status === 404) {
+                    setError('No price data available for this item');
+                } else {
+                    setError('Failed to load price history');
+                }
+                setPriceData([]);
             } finally {
                 setLoading(false);
             }
@@ -100,16 +100,217 @@ export default function PriceHistoryChart({
         if (itemTag) {
             fetchPriceHistory();
         }
-    }, [itemTag, days, granularity]);
+    }, [itemTag, dateRange, itemFilter]);
 
-    // Handle granularity change
-    const handleGranularityChange = (newGranularity: 'hourly' | 'daily') => {
-        setGranularity(newGranularity);
-        // Hourly data only available for 7 days
-        if (newGranularity === 'hourly' && days > 7) {
-            setDays(7);
+    // Handle date range change
+    const handleRangeChange = (range: DateRange) => {
+        setDateRange(range);
+        onRangeChange?.(range);
+    };
+
+    // Build chart options
+    const getChartOptions = () => {
+        if (priceData.length === 0) {
+            return {};
+        }
+
+        const defaultSelection = getDefaultLegendSelection();
+        
+        // Prepare x-axis data as formatted strings
+        const xAxisData = priceData.map(item => {
+            const date = item.time instanceof Date ? item.time : new Date(item.time);
+            if (dateRange === 'day') {
+                return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            }
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+
+        return {
+            backgroundColor: 'transparent',
+            legend: {
+                data: ['Price', 'Min', 'Max', 'Volume'],
+                selected: defaultSelection,
+                textStyle: { color: '#aaa' },
+                top: 0,
+                left: 'center'
+            },
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: 'rgba(30, 30, 30, 0.95)',
+                borderColor: '#444',
+                textStyle: { color: '#fff' },
+                formatter: (params: any) => {
+                    if (!params || params.length === 0) return '';
+                    const dataIndex = params[0].dataIndex;
+                    const item = priceData[dataIndex];
+                    if (!item) return '';
+                    
+                    const date = item.time instanceof Date ? item.time : new Date(item.time);
+                    let html = `<div style="font-weight: bold; margin-bottom: 5px;">${formatDateTime(date)}</div>`;
+                    
+                    params.forEach((param: any) => {
+                        if (param.value !== undefined) {
+                            const color = param.color;
+                            const value = param.seriesName === 'Volume' 
+                                ? param.value.toLocaleString()
+                                : formatPrice(param.value);
+                            html += `<div style="display: flex; justify-content: space-between; gap: 20px;">
+                                <span><span style="display: inline-block; width: 10px; height: 10px; background: ${color}; border-radius: 50%; margin-right: 5px;"></span>${param.seriesName}</span>
+                                <span style="font-weight: bold;">${value}</span>
+                            </div>`;
+                        }
+                    });
+                    
+                    return html;
+                }
+            },
+            grid: {
+                left: '60',
+                right: '60',
+                top: '40',
+                bottom: '60'
+            },
+            xAxis: {
+                type: 'category',
+                data: xAxisData,
+                axisLabel: {
+                    color: '#aaa',
+                },
+                axisLine: { lineStyle: { color: '#444' } },
+                axisTick: { lineStyle: { color: '#444' } }
+            },
+            yAxis: [
+                {
+                    type: 'value',
+                    name: 'Price',
+                    nameTextStyle: { color: '#aaa' },
+                    axisLabel: {
+                        color: '#aaa',
+                        formatter: (value: number) => formatPrice(value)
+                    },
+                    axisLine: { lineStyle: { color: '#444' } },
+                    splitLine: { lineStyle: { color: '#333' } }
+                },
+                {
+                    type: 'value',
+                    name: 'Volume',
+                    nameTextStyle: { color: '#aaa' },
+                    position: 'right',
+                    axisLabel: {
+                        color: '#aaa',
+                        formatter: (value: number) => formatPrice(value)
+                    },
+                    axisLine: { lineStyle: { color: '#444' } },
+                    splitLine: { show: false }
+                }
+            ],
+            dataZoom: [
+                {
+                    type: 'inside',
+                    start: 0,
+                    end: 100
+                },
+                {
+                    type: 'slider',
+                    start: 0,
+                    end: 100,
+                    height: 20,
+                    bottom: 10,
+                    borderColor: '#444',
+                    backgroundColor: '#1a1a1a',
+                    fillerColor: 'rgba(80, 80, 80, 0.3)',
+                    handleStyle: { color: '#666' },
+                    textStyle: { color: '#aaa' }
+                }
+            ],
+            series: [
+                {
+                    name: 'Price',
+                    type: 'line',
+                    data: priceData.map(item => item.avg),
+                    smooth: true,
+                    lineStyle: { color: '#22A7F0', width: 2 },
+                    itemStyle: { color: '#22A7F0' },
+                    areaStyle: {
+                        color: {
+                            type: 'linear',
+                            x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [
+                                { offset: 0, color: 'rgba(34, 167, 240, 0.3)' },
+                                { offset: 1, color: 'rgba(34, 167, 240, 0)' }
+                            ]
+                        }
+                    },
+                    symbol: 'circle',
+                    symbolSize: 4,
+                    showSymbol: false
+                },
+                {
+                    name: 'Min',
+                    type: 'line',
+                    data: priceData.map(item => item.min),
+                    smooth: true,
+                    lineStyle: { color: '#228B22', width: 1.5 },
+                    itemStyle: { color: '#228B22' },
+                    symbol: 'circle',
+                    symbolSize: 3,
+                    showSymbol: false
+                },
+                {
+                    name: 'Max',
+                    type: 'line',
+                    data: priceData.map(item => item.max),
+                    smooth: true,
+                    lineStyle: { color: '#B22222', width: 1.5 },
+                    itemStyle: { color: '#B22222' },
+                    symbol: 'circle',
+                    symbolSize: 3,
+                    showSymbol: false
+                },
+                {
+                    name: 'Volume',
+                    type: 'bar',
+                    yAxisIndex: 1,
+                    data: priceData.map(item => item.volume),
+                    barWidth: '60%',
+                    itemStyle: { 
+                        color: 'rgba(108, 117, 125, 0.5)',
+                        borderRadius: [2, 2, 0, 0]
+                    }
+                }
+            ]
+        };
+    };
+
+    // Handle legend selection change - persist to localStorage
+    const onChartEvents = {
+        legendselectchanged: (params: any) => {
+            try {
+                localStorage.setItem(LEGEND_STORAGE_KEY, JSON.stringify(params.selected));
+            } catch (e) {
+                // Ignore storage errors
+            }
         }
     };
+
+    // Calculate summary stats
+    const getSummaryStats = () => {
+        if (priceData.length === 0) return null;
+        
+        const avgPrice = priceData.reduce((sum, p) => sum + p.avg, 0) / priceData.length;
+        const minPrice = Math.min(...priceData.map(p => p.min));
+        const maxPrice = Math.max(...priceData.map(p => p.max));
+        const totalVolume = priceData.reduce((sum, p) => sum + p.volume, 0);
+        
+        // Calculate price change
+        const firstPrice = priceData[0]?.avg || 0;
+        const lastPrice = priceData[priceData.length - 1]?.avg || 0;
+        const priceChange = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
+        
+        return { avgPrice, minPrice, maxPrice, totalVolume, priceChange };
+    };
+
+    const stats = getSummaryStats();
 
     if (loading) {
         return (
@@ -120,171 +321,88 @@ export default function PriceHistoryChart({
         );
     }
 
-    if (error) {
+    if (error || priceData.length === 0) {
         return (
-            <Alert variant="danger" className="bg-dark text-danger border-danger">
-                {error}
-            </Alert>
-        );
-    }
-
-    if (!priceData || priceData.data.length === 0) {
-        return (
-            <div className="bg-dark rounded border border-secondary p-4 text-center" style={{ minHeight: height }}>
-                <p className="text-secondary mb-0">No price history available for this item yet.</p>
-                <small className="text-muted">Price data is collected from sold auctions over time.</small>
+            <div className="bg-dark rounded border border-secondary p-3">
+                {/* Header with range selector even when no data */}
+                <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <h5 className="mb-0 text-light">Price History</h5>
+                    <ButtonGroup size="sm">
+                        {dateRanges.map(range => (
+                            <Button
+                                key={range.value}
+                                variant={dateRange === range.value ? 'primary' : 'outline-secondary'}
+                                onClick={() => handleRangeChange(range.value)}
+                            >
+                                {range.label}
+                            </Button>
+                        ))}
+                    </ButtonGroup>
+                </div>
+                <div className="text-center py-5">
+                    <p className="text-secondary mb-0">{error || 'No price history available for this item.'}</p>
+                    <small className="text-muted">Price data is collected from sold auctions over time.</small>
+                </div>
             </div>
         );
     }
-
-    // Prepare chart data with formatted dates
-    const chartData = priceData.data.map(point => ({
-        ...point,
-        formattedDate: formatDate(point.timestamp, granularity),
-        granularity
-    }));
-
-    const { summary } = priceData;
 
     return (
         <div className="bg-dark rounded border border-secondary p-3">
             {/* Header with controls */}
-            <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                 <h5 className="mb-0 text-light">
                     Price History
-                    {summary && (
-                        <Badge 
-                            bg={summary.trend === 'increasing' ? 'success' : summary.trend === 'decreasing' ? 'danger' : 'secondary'}
-                            className="ms-2"
+                    {stats && (
+                        <span 
+                            className={`ms-2 badge ${stats.priceChange >= 0 ? 'bg-success' : 'bg-danger'}`}
                         >
-                            {summary.priceChange > 0 ? '+' : ''}{summary.priceChange}%
-                        </Badge>
+                            {stats.priceChange >= 0 ? '+' : ''}{stats.priceChange.toFixed(1)}%
+                        </span>
                     )}
                 </h5>
                 
-                <div className="d-flex gap-2 flex-wrap">
-                    {/* Granularity toggle */}
-                    <ButtonGroup size="sm">
+                {/* Time range selector */}
+                <ButtonGroup size="sm">
+                    {dateRanges.map(range => (
                         <Button
-                            variant={granularity === 'hourly' ? 'primary' : 'outline-secondary'}
-                            onClick={() => handleGranularityChange('hourly')}
+                            key={range.value}
+                            variant={dateRange === range.value ? 'primary' : 'outline-secondary'}
+                            onClick={() => handleRangeChange(range.value)}
                         >
-                            Hourly
+                            {range.label}
                         </Button>
-                        <Button
-                            variant={granularity === 'daily' ? 'primary' : 'outline-secondary'}
-                            onClick={() => handleGranularityChange('daily')}
-                        >
-                            Daily
-                        </Button>
-                    </ButtonGroup>
-
-                    {/* Time range selector */}
-                    <ButtonGroup size="sm">
-                        {granularity === 'hourly' ? (
-                            <>
-                                <Button variant={days === 1 ? 'primary' : 'outline-secondary'} onClick={() => setDays(1)}>24h</Button>
-                                <Button variant={days === 3 ? 'primary' : 'outline-secondary'} onClick={() => setDays(3)}>3d</Button>
-                                <Button variant={days === 7 ? 'primary' : 'outline-secondary'} onClick={() => setDays(7)}>7d</Button>
-                            </>
-                        ) : (
-                            <>
-                                <Button variant={days === 7 ? 'primary' : 'outline-secondary'} onClick={() => setDays(7)}>7d</Button>
-                                <Button variant={days === 30 ? 'primary' : 'outline-secondary'} onClick={() => setDays(30)}>30d</Button>
-                                <Button variant={days === 60 ? 'primary' : 'outline-secondary'} onClick={() => setDays(60)}>60d</Button>
-                                <Button variant={days === 90 ? 'primary' : 'outline-secondary'} onClick={() => setDays(90)}>90d</Button>
-                            </>
-                        )}
-                    </ButtonGroup>
-                </div>
+                    ))}
+                </ButtonGroup>
             </div>
 
-            {/* Chart */}
-            <ResponsiveContainer width="100%" height={height}>
-                <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="colorMedian" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#ffc107" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="#ffc107" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="colorRange" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#6c757d" stopOpacity={0.2} />
-                            <stop offset="95%" stopColor="#6c757d" stopOpacity={0} />
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                    <XAxis 
-                        dataKey="formattedDate" 
-                        stroke="#aaa" 
-                        tick={{ fill: '#aaa', fontSize: 11 }}
-                        interval="preserveStartEnd"
-                    />
-                    <YAxis 
-                        stroke="#aaa" 
-                        tick={{ fill: '#aaa', fontSize: 11 }}
-                        tickFormatter={formatPrice}
-                        width={60}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend />
-                    
-                    {/* Min-Max range area */}
-                    <Area
-                        type="monotone"
-                        dataKey="max"
-                        stroke="transparent"
-                        fill="url(#colorRange)"
-                        name="Max"
-                    />
-                    <Area
-                        type="monotone"
-                        dataKey="min"
-                        stroke="#28a745"
-                        strokeWidth={1}
-                        fill="transparent"
-                        name="Min"
-                        strokeDasharray="3 3"
-                    />
-                    
-                    {/* Median line (primary) */}
-                    <Area
-                        type="monotone"
-                        dataKey="median"
-                        stroke="#ffc107"
-                        strokeWidth={2}
-                        fill="url(#colorMedian)"
-                        name="Median"
-                    />
-
-                    {/* Volume bars */}
-                    <Bar 
-                        dataKey="volume" 
-                        fill="#6c757d" 
-                        opacity={0.3} 
-                        yAxisId="volume"
-                        name="Volume"
-                    />
-                </ComposedChart>
-            </ResponsiveContainer>
+            {/* Chart - click legend items to toggle Price/Min/Max/Volume */}
+            <ReactECharts
+                ref={chartRef}
+                option={getChartOptions()}
+                style={{ height: height }}
+                opts={{ renderer: 'canvas' }}
+                onEvents={onChartEvents}
+            />
 
             {/* Summary stats */}
-            {summary && (
+            {stats && (
                 <div className="d-flex justify-content-around mt-3 pt-3 border-top border-secondary text-center flex-wrap gap-2">
                     <div>
-                        <small className="text-secondary d-block">Avg Median</small>
-                        <span className="text-warning fw-bold">{formatPrice(summary.avgMedian)}</span>
+                        <small className="text-secondary d-block">Avg Price</small>
+                        <span className="text-info fw-bold">{formatPrice(stats.avgPrice)}</span>
                     </div>
                     <div>
                         <small className="text-secondary d-block">Lowest</small>
-                        <span className="text-success fw-bold">{formatPrice(summary.lowestMin)}</span>
+                        <span className="text-success fw-bold">{formatPrice(stats.minPrice)}</span>
                     </div>
                     <div>
                         <small className="text-secondary d-block">Highest</small>
-                        <span className="text-danger fw-bold">{formatPrice(summary.highestMax)}</span>
+                        <span className="text-danger fw-bold">{formatPrice(stats.maxPrice)}</span>
                     </div>
                     <div>
                         <small className="text-secondary d-block">Volume</small>
-                        <span className="text-info fw-bold">{summary.totalVolume.toLocaleString()}</span>
+                        <span className="text-warning fw-bold">{stats.totalVolume.toLocaleString()}</span>
                     </div>
                 </div>
             )}

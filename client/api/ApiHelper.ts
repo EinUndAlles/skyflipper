@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Auction, Stats, TagCount } from '../types';
-import { PriceHistoryResponse } from '../types/priceHistory';
+import { ItemPrice, DateRange, ItemFilter } from '../types/priceHistory';
 
 const API_BASE_URL = 'http://localhost:5135/api';
 
@@ -97,15 +97,47 @@ export const api = {
         return response.data;
     },
 
-    getPriceHistory: async (
-        tag: string,
-        days: number = 30,
-        granularity: 'hourly' | 'daily' = 'daily'
-    ): Promise<PriceHistoryResponse> => {
-        const response = await axios.get<PriceHistoryResponse>(
-            `${API_BASE_URL}/auctions/item/${tag}/price-history`,
-            { params: { days, granularity } }
+    // Price history endpoints - uses our local backend
+    getItemPrices: async (
+        itemTag: string,
+        fetchSpan: DateRange = 'week',
+        itemFilter?: ItemFilter
+    ): Promise<ItemPrice[]> => {
+        const params: Record<string, string> = {};
+        if (itemFilter && Object.keys(itemFilter).length > 0) {
+            Object.entries(itemFilter).forEach(([key, value]) => {
+                if (value) params[key] = value;
+            });
+        }
+        
+        const response = await axios.get<ItemPrice[]>(
+            `${API_BASE_URL}/auctions/item/price/${itemTag}/history/${fetchSpan}`,
+            { params }
         );
+        
+        // Convert time strings to Date objects
+        return response.data.map(item => ({
+            ...item,
+            time: new Date(item.time)
+        }));
+    },
+
+    // Get price summary for an item
+    getPriceSummary: async (itemTag: string, itemFilter?: ItemFilter): Promise<{
+        min: number;
+        max: number;
+        avg: number;
+        med: number;
+        volume: number;
+    }> => {
+        const params: Record<string, string> = {};
+        if (itemFilter && Object.keys(itemFilter).length > 0) {
+            Object.entries(itemFilter).forEach(([key, value]) => {
+                if (value) params[key] = value;
+            });
+        }
+        
+        const response = await axios.get(`${API_BASE_URL}/auctions/item/price/${itemTag}`, { params });
         return response.data;
     }
 };
