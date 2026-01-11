@@ -14,6 +14,7 @@ import RelatedItems from '@/components/RelatedItems';
 import { ItemFilter, FilterOptions } from '@/types/filters';
 import { ItemFilter as PriceItemFilter } from '@/types/priceHistory';
 import { toast } from '@/components/ToastProvider';
+import { getDisplayName } from '@/utils/itemName';
 
 // Encode filters to base64 for URL
 const encodeFilters = (filters: ItemFilter): string => {
@@ -224,7 +225,10 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
     }
 
     const item = auctions.length > 0 ? auctions[0] : null;
-    const displayName = nameFilter ? `${nameFilter} Pet` : (item?.itemName || tag);
+    // Clean the item name: remove stars, reforges, pet levels
+    const displayName = nameFilter 
+        ? `${nameFilter} Pet` 
+        : getDisplayName(item?.itemName, tag);
     const tierColor = item ? getTierColor(item.tier) : '#FFFFFF';
 
     return (

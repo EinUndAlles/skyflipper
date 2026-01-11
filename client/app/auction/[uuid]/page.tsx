@@ -9,6 +9,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from '@/components/ToastProvider';
+import PriceHistoryChart from '@/components/PriceHistoryChart';
 
 export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: string }> }) {
     const { uuid } = use(params);
@@ -289,10 +290,10 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
                                 </div>
                             )}
 
-                            {/* Price Graph Placeholder */}
-                            <div className="p-4 border border-secondary border-dashed rounded text-center text-muted bg-black bg-opacity-25">
-                                <h5 className="mb-3">Price History</h5>
-                                <p>Price graph visualization coming soon...</p>
+                            {/* Price History Chart */}
+                            <div className="mb-4">
+                                <h5 className="border-bottom border-secondary pb-2 mb-3">Price History</h5>
+                                <PriceHistoryChart itemTag={auction.tag} height={300} />
                             </div>
 
                         </Card.Body>
