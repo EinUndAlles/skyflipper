@@ -13,16 +13,19 @@ public class PriceAggregationService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PriceAggregationService> _logger;
     private readonly CacheKeyService _cacheKeyService;
+    private readonly ComponentValueService _componentValueService;
     private readonly TimeSpan _aggregationInterval = TimeSpan.FromMinutes(30); // Check every 30min
 
     public PriceAggregationService(
         IServiceScopeFactory scopeFactory,
         ILogger<PriceAggregationService> logger,
-        CacheKeyService cacheKeyService)
+        CacheKeyService cacheKeyService,
+        ComponentValueService componentValueService)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _cacheKeyService = cacheKeyService;
+        _componentValueService = componentValueService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -106,18 +109,33 @@ public class PriceAggregationService : BackgroundService
         }
 
         // Group by cache key and calculate statistics
-        var aggregates = soldAuctions
+        // CRITICAL: Subtract gem value from each sale to get "base item" price
+        // This matches reference project: FlippingEngine.cs line 340
+        var aggregatesData = new List<(string CacheKey, List<double> Prices)>();
+        
+        foreach (var group in soldAuctions
             .Select(a => new
             {
                 Auction = a,
                 CacheKey = _cacheKeyService.GeneratePriceCacheKey(a)
             })
-            .GroupBy(x => x.CacheKey)
-            .Select(g => new
+            .GroupBy(x => x.CacheKey))
+        {
+            var prices = new List<double>();
+            foreach (var item in group)
             {
-                CacheKey = g.Key,
-                Prices = g.Select(x => (double)x.Auction.SoldPrice!.Value).ToList()
-            })
+                var salePrice = (double)item.Auction.SoldPrice!.Value;
+                // Subtract gem value to get base item value (matching reference project)
+                var (gemValue, _) = await _componentValueService.GetGemstoneValueOnly(item.Auction);
+                var baseValue = salePrice - gemValue;
+                // Don't allow negative base values
+                prices.Add(Math.Max(baseValue, salePrice * 0.1));
+            }
+            aggregatesData.Add((group.Key, prices));
+        }
+
+        var aggregates = aggregatesData
+            .Select(x => new { CacheKey = x.CacheKey, Prices = x.Prices })
             .ToList();
 
         await SavePriceAggregates(dbContext, aggregates, previousHour, 

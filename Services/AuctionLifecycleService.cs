@@ -213,20 +213,20 @@ public class AuctionLifecycleService : BackgroundService
             await dbContext.SaveChangesAsync(stoppingToken);
         }
 
-        // Fix auctions with negative or zero prices
+// Fix auctions with negative prices (not zero - zero is valid for auctions with no bids)
         var invalidPriceAuctions = await dbContext.Auctions
-            .Where(a => a.StartingBid <= 0 || a.HighestBidAmount <= 0)
+            .Where(a => a.StartingBid < 0 || a.HighestBidAmount < 0)
             .ToListAsync(stoppingToken);
 
         if (invalidPriceAuctions.Count > 0)
         {
             foreach (var auction in invalidPriceAuctions)
             {
-                if (auction.StartingBid <= 0)
+                if (auction.StartingBid < 0)
                     auction.StartingBid = 1; // Minimum valid price
 
-                if (auction.HighestBidAmount <= 0)
-                    auction.HighestBidAmount = auction.StartingBid;
+                if (auction.HighestBidAmount < 0)
+                    auction.HighestBidAmount = 0; // Reset to no bids
 
                 fixes++;
             }

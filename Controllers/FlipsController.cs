@@ -54,7 +54,8 @@ public class FlipsController : ControllerBase
                 : "UNKNOWN",
             Texture = auctions.TryGetValue(f.AuctionUuid, out var auc) 
                 ? auc.Texture 
-                : null
+                : null,
+            ValueBreakdown = f.ValueBreakdown
         }).ToList();
 
         return Ok(result);
@@ -134,6 +135,7 @@ public class FlipOpportunityDto
     public DateTime AuctionEnd { get; set; }
     public string Tier { get; set; } = string.Empty;
     public string? Texture { get; set; }
+    public string ValueBreakdown { get; set; } = string.Empty;
 }
 
 public class FlipStats

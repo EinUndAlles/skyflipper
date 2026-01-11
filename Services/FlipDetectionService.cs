@@ -14,22 +14,27 @@ public class FlipDetectionService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<FlipDetectionService> _logger;
     private readonly CacheKeyService _cacheKeyService;
-    private const int DETECTION_INTERVAL_SECONDS = 60;
-    private const double MIN_PROFIT_MARGIN = 0.10; // 10%
-    private const int MIN_SALES_THRESHOLD = 5; // Minimum sales to consider
+    private readonly ComponentValueService _componentValueService;
+
+    private const int DETECTION_INTERVAL_SECONDS = 30; // Check every 30 seconds
+    private const double MIN_PROFIT_MARGIN = 0.05; // 5% minimum profit
+    private const int MIN_SALES_THRESHOLD = 7; // Reference project requires > 7 references
     private const int PRICE_HISTORY_DAYS = 7; // Look back 7 days for median
     private const int MAX_FLIPS_TO_STORE = 200; // Limit stored flips
     private const double HIT_COUNT_DECAY_FACTOR = 1.05; // 5% decay per hit
     private const int MAX_HIT_COUNT = 20; // Cap decay at 20 hits
+    private const long MIN_ITEM_VALUE = 10000; // 10k minimum value
 
     public FlipDetectionService(
         IServiceScopeFactory scopeFactory,
         ILogger<FlipDetectionService> logger,
-        CacheKeyService cacheKeyService)
+        CacheKeyService cacheKeyService,
+        ComponentValueService componentValueService)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _cacheKeyService = cacheKeyService;
+        _componentValueService = componentValueService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -38,7 +43,7 @@ public class FlipDetectionService : BackgroundService
             MIN_PROFIT_MARGIN * 100);
 
         // Wait for initial data collection
-        await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
+        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -63,7 +68,7 @@ public class FlipDetectionService : BackgroundService
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = DateTime.UtcNow;
 
-        // Step 1: Get hourly prices from last 24 hours (more accurate for active items)
+        // Step 1: Get hourly prices from last 24 hours
         var hourlyPrices = await dbContext.AveragePrices
             .Where(p => p.Granularity == PriceGranularity.Hourly &&
                        p.Timestamp > now.AddHours(-24) &&
@@ -78,7 +83,7 @@ public class FlipDetectionService : BackgroundService
             })
             .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
 
-        // Step 2: Get daily prices for items without recent hourly data
+        // Step 2: Get daily prices
         var hourlyCacheKeys = hourlyPrices.Keys.ToList();
         var dailyPrices = await dbContext.AveragePrices
             .Where(p => p.Granularity == PriceGranularity.Daily &&
@@ -95,17 +100,15 @@ public class FlipDetectionService : BackgroundService
             })
             .ToDictionaryAsync(p => p.CacheKey, stoppingToken);
 
-        // Step 3: Merge hourly and daily data (hourly takes priority)
+        // Step 3: Merge prices
         var allPrices = new Dictionary<string, (double SafeMedian, int Volume, bool IsRecent)>();
 
-        // Process hourly prices with weighted median algorithm
         foreach (var kvp in hourlyPrices)
         {
             var safeMedian = CalculateWeightedMedian(kvp.Value.Medians);
             allPrices[kvp.Key] = (safeMedian, kvp.Value.Volume, kvp.Value.IsRecent);
         }
 
-        // Process daily prices for items not in hourly
         foreach (var kvp in dailyPrices)
         {
             if (!allPrices.ContainsKey(kvp.Key))
@@ -115,7 +118,7 @@ public class FlipDetectionService : BackgroundService
             }
         }
 
-        // Step 4: Get active BIN auctions with full data for cache key generation
+        // Step 4: Get active auctions
         var activeAuctions = await dbContext.Auctions
             .Where(a => a.Bin &&
                        a.Status == AuctionStatus.ACTIVE &&
@@ -125,41 +128,84 @@ public class FlipDetectionService : BackgroundService
                 .ThenInclude(nbt => nbt.NBTKey)
             .ToListAsync(stoppingToken);
 
-        // Filter auctions that have price data and generate cache keys
         var auctionsWithPrices = activeAuctions
             .Select(a => new
             {
                 Auction = a,
                 CacheKey = _cacheKeyService.GeneratePriceCacheKey(a)
             })
-            .Where(x => allPrices.ContainsKey(x.CacheKey))
             .ToList();
 
         var flips = new List<FlipOpportunity>();
 
-        // Step 5: Calculate flips with hit count decay
+        // Step 5: Calculate flips
         foreach (var auctionData in auctionsWithPrices)
         {
             var auction = auctionData.Auction;
             var cacheKey = auctionData.CacheKey;
+            
+            double effectiveMedian = 0;
+            string breakdown = "";
+            string dataSource = "";
 
-            if (!allPrices.TryGetValue(cacheKey, out var priceData))
-                continue;
-
-            if (priceData.Volume < MIN_SALES_THRESHOLD)
-                continue;
+            // 1. Try Exact Match
+            if (allPrices.TryGetValue(cacheKey, out var priceData) && priceData.Volume >= MIN_SALES_THRESHOLD)
+            {
+                effectiveMedian = priceData.SafeMedian;
+                dataSource = priceData.IsRecent ? "Hourly (24h)" : "Daily (7d)";
+            }
+            // 2. Try Base Match + Component Value
+            else
+            {
+                var baseKey = _cacheKeyService.GenerateBaseCacheKey(auction);
+                if (allPrices.TryGetValue(baseKey, out var basePriceData) && basePriceData.Volume >= MIN_SALES_THRESHOLD)
+                {
+                    var (compValue, compBreakdown) = await _componentValueService.GetOrCalculateItemComponentValue(auction);
+                    
+                    if (compValue > 0)
+                    {
+                        // Reference algorithm: BaseMedian * 0.9 + ComponentValue
+                        effectiveMedian = (basePriceData.SafeMedian * 0.9) + compValue;
+                        dataSource = "Component Calculated";
+                        breakdown = $"Base: {basePriceData.SafeMedian/1000000.0:F1}m, {compBreakdown}";
+                        // Use base key for hit count tracking
+                        cacheKey = baseKey; 
+                    }
+                    else
+                    {
+                        continue; // No exact match and no valuable components
+                    }
+                }
+                else
+                {
+                    continue; // No pricing data found
+                }
+            }
 
             var currentPrice = auction.HighestBidAmount > 0
                 ? auction.HighestBidAmount
                 : auction.StartingBid;
-            var baseMedianPrice = priceData.SafeMedian;
-
+            
             // Apply hit count decay
-            var decayedMedianPrice = await ApplyHitCountDecay(dbContext, cacheKey, baseMedianPrice);
+            var decayedMedianPrice = await ApplyHitCountDecay(dbContext, cacheKey, effectiveMedian);
+            
+            // Reference project (lines 284-287): Low-value items get 10% extra margin
+            if (decayedMedianPrice < 1_000_000)
+            {
+                decayedMedianPrice *= 0.9;
+            }
+            
+            // Reference project (lines 311-315): Stack count multiplier
+            // Items with count > 1 should be priced cheaper per unit
+            if (auction.Count > 1)
+            {
+                decayedMedianPrice *= 0.9 * auction.Count;
+            }
+            
             var medianPrice = (long)decayedMedianPrice;
 
             // Skip low-value items
-            if (medianPrice < 100000) continue;
+            if (medianPrice < MIN_ITEM_VALUE) continue;
 
             var profitMargin = (double)(medianPrice - currentPrice) / medianPrice;
 
@@ -175,7 +221,8 @@ public class FlipDetectionService : BackgroundService
                     EstimatedProfit = medianPrice - currentPrice,
                     ProfitMarginPercent = profitMargin * 100,
                     AuctionEnd = auction.End,
-                    DataSource = priceData.IsRecent ? "Hourly (24h)" : $"Daily (7d) - Weighted Median + Decay"
+                    DataSource = dataSource,
+                    ValueBreakdown = breakdown
                 });
 
                 // Track this as a hit
@@ -183,13 +230,13 @@ public class FlipDetectionService : BackgroundService
             }
         }
 
-        // Sort and limit results
+        // Sort and limit
         flips = flips
             .OrderByDescending(f => f.ProfitMarginPercent)
             .Take(MAX_FLIPS_TO_STORE)
             .ToList();
 
-        // Clear old flips and insert new ones
+        // Save
         await dbContext.FlipOpportunities.ExecuteDeleteAsync(stoppingToken);
 
         if (flips.Count > 0)
@@ -198,102 +245,48 @@ public class FlipDetectionService : BackgroundService
             await dbContext.SaveChangesAsync(stoppingToken);
 
             var topFlip = flips.First();
-            var hourlyCount = flips.Count(f => f.DataSource.StartsWith("Hourly"));
-            _logger.LogInformation("🔥 Detected {Count} flips ({Hourly} hourly, {Daily} daily)! Top: {Item} (-{Margin:F1}%, profit: {Profit:N0})",
+            _logger.LogInformation("🔥 Detected {Count} flips! Top: {Item} (-{Margin:F1}%, profit: {Profit:N0})",
                 flips.Count,
-                hourlyCount,
-                flips.Count - hourlyCount,
                 topFlip.ItemName,
                 topFlip.ProfitMarginPercent,
                 topFlip.EstimatedProfit);
         }
-        else
-        {
-            _logger.LogDebug("No flips detected in this cycle");
-        }
     }
 
-    /// <summary>
-    /// Calculates weighted median using Coflnet's algorithm:
-    /// MIN(long-term median, short-term median of last 3 sales)
-    /// This prevents price manipulation and crash vulnerability.
-    /// </summary>
     private double CalculateWeightedMedian(List<double> medians)
     {
-        if (medians == null || medians.Count == 0)
-            return 0;
-
-        // Sort medians chronologically (most recent first)
-        medians.Sort((a, b) => b.CompareTo(a)); // Descending order
-
-        // Long-term median: all available data
+        if (medians == null || medians.Count == 0) return 0;
+        medians.Sort((a, b) => b.CompareTo(a));
         var longTermMedian = CalculateMedian(medians);
-
-        // Short-term median: last 3 sales (most recent)
         var shortTermData = medians.Take(3).ToList();
         var shortTermMedian = CalculateMedian(shortTermData);
-
-        // Use the more conservative (lower) median to avoid manipulation
         return Math.Min(longTermMedian, shortTermMedian);
     }
 
-    /// <summary>
-    /// Calculates the median of a list of doubles.
-    /// </summary>
     private double CalculateMedian(List<double> values)
     {
         if (values.Count == 0) return 0;
-
         var sorted = values.OrderBy(v => v).ToList();
         int mid = sorted.Count / 2;
-
-        if (sorted.Count % 2 == 0)
-            return (sorted[mid - 1] + sorted[mid]) / 2.0;
-        else
-            return sorted[mid];
+        return sorted.Count % 2 != 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2.0;
     }
 
-    /// <summary>
-    /// Applies hit count decay to the median price.
-    /// Items flagged as flips repeatedly get reduced target prices.
-    /// </summary>
     private async Task<double> ApplyHitCountDecay(AppDbContext dbContext, string cacheKey, double baseMedianPrice)
     {
-        var hitCountRecord = await dbContext.FlipHitCounts
-            .FirstOrDefaultAsync(h => h.CacheKey == cacheKey);
-
-        if (hitCountRecord == null || hitCountRecord.HitCount == 0)
-            return baseMedianPrice;
-
-        // Apply decay: targetPrice = basePrice * (1.05 ^ hitCount)
-        // Cap at MAX_HIT_COUNT to prevent excessive decay
+        var hitCountRecord = await dbContext.FlipHitCounts.FirstOrDefaultAsync(h => h.CacheKey == cacheKey);
+        if (hitCountRecord == null || hitCountRecord.HitCount == 0) return baseMedianPrice;
+        
         var effectiveHitCount = Math.Min(hitCountRecord.HitCount, MAX_HIT_COUNT);
         var decayFactor = Math.Pow(HIT_COUNT_DECAY_FACTOR, effectiveHitCount);
-
-        var decayedPrice = baseMedianPrice * decayFactor;
-
-        _logger.LogDebug("Applied {DecayFactor:F2}x decay to {CacheKey} (hit count: {Hits})",
-            decayFactor, cacheKey, hitCountRecord.HitCount);
-
-        return decayedPrice;
+        return baseMedianPrice / decayFactor;
     }
 
-    /// <summary>
-    /// Records that a cache key was flagged as a flip (increments hit count).
-    /// </summary>
     private async Task RecordFlipHit(AppDbContext dbContext, string cacheKey)
     {
-        var hitCountRecord = await dbContext.FlipHitCounts
-            .FirstOrDefaultAsync(h => h.CacheKey == cacheKey);
-
+        var hitCountRecord = await dbContext.FlipHitCounts.FirstOrDefaultAsync(h => h.CacheKey == cacheKey);
         if (hitCountRecord == null)
         {
-            hitCountRecord = new FlipHitCount
-            {
-                CacheKey = cacheKey,
-                HitCount = 1,
-                LastHitAt = DateTime.UtcNow
-            };
+            hitCountRecord = new FlipHitCount { CacheKey = cacheKey, HitCount = 1, LastHitAt = DateTime.UtcNow };
             dbContext.FlipHitCounts.Add(hitCountRecord);
         }
         else
@@ -301,7 +294,6 @@ public class FlipDetectionService : BackgroundService
             hitCountRecord.HitCount++;
             hitCountRecord.LastHitAt = DateTime.UtcNow;
         }
-
         await dbContext.SaveChangesAsync();
     }
 }

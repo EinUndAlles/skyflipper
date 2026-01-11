@@ -107,6 +107,47 @@ public class CacheKeyService
     }
 
     /// <summary>
+    /// Generates a "base" cache key that excludes dynamic value modifiers (Enchants, Gems, Scrolls, Recombs).
+    /// Used for finding the base value of an item to add component value on top.
+    /// </summary>
+    public string GenerateBaseCacheKey(Auction auction)
+    {
+        if (auction == null) throw new ArgumentNullException(nameof(auction));
+
+        var keyBuilder = new StringBuilder();
+        keyBuilder.Append(auction.Tag);
+
+        // Add stars/dungeon level (stars represent permanent progression, usually want to compare same-star items)
+        var stars = GetStars(auction);
+        if (stars > 0)
+        {
+            keyBuilder.Append($"_stars{stars}");
+        }
+
+        // Exclude Recomb (handled by ComponentValueService)
+        // Exclude Reforge (value adds are minor or specific, safer to compare raw)
+        // Exclude Enchants
+        // Exclude Gems
+        // Exclude Modifiers (Scrolls, etc)
+
+        // For pets, base key should probably just include level group?
+        if (IsPet(auction.Tag))
+        {
+             // Pets are hard to "componentize" except for held items/candies.
+             // Let's keep level group as part of base.
+            var petLevel = GetPetLevel(auction);
+            if (petLevel > 0)
+            {
+                var levelGroup = GetPetLevelGroup(petLevel);
+                keyBuilder.Append($"_lvl{levelGroup}");
+            }
+            // Exclude Skin, Held Item, Candy
+        }
+
+        return keyBuilder.ToString();
+    }
+
+    /// <summary>
     /// Gets the star level from NBT data.
     /// </summary>
     private int GetStars(Auction auction)

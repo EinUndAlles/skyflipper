@@ -48,4 +48,10 @@ public class FlipOpportunity
     /// </summary>
     [MaxLength(20)]
     public string DataSource { get; set; } = "Unknown";
+
+    /// <summary>
+    /// Explanation of how value was calculated (e.g., "Base: 10m, Gems: +2m").
+    /// </summary>
+    [MaxLength(200)]
+    public string ValueBreakdown { get; set; } = string.Empty;
 }

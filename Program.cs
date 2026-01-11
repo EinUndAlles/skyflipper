@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using SkyFlipperSolo.Data;
+using SkyFlipperSolo.Hubs;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
 
@@ -17,16 +18,22 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 
-// Add CORS policy for frontend
+// Add CORS policy for frontend (with credentials for SignalR)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy.WithOrigins("http://localhost:3000")
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              .AllowCredentials(); // Required for SignalR
     });
 });
+
+// Add SignalR for real-time WebSocket communication
+// Add SignalR for real-time WebSocket communication
+builder.Services.AddSignalR();
+builder.Services.AddMemoryCache(); // Required for ComponentValueService cashing
 
 // Add PostgreSQL DbContext
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -55,6 +62,7 @@ builder.Services.AddSingleton<NBTValueService>(); // NBT value deduplication ser
 builder.Services.AddSingleton<ItemDetailsService>(); // Item metadata tracking
 builder.Services.AddSingleton<CacheKeyService>(); // NBT-aware cache key generation
 builder.Services.AddSingleton<PropertiesSelectorService>(); // Item property formatting
+builder.Services.AddSingleton<ComponentValueService>(); // Component valuation service
 // Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management
@@ -62,6 +70,7 @@ builder.Services.AddHostedService<FlipperService>();
 builder.Services.AddHostedService<SoldAuctionService>(); // Keep for auctions_ended API integration
 builder.Services.AddHostedService<PriceAggregationService>();
 builder.Services.AddHostedService<FlipDetectionService>();
+builder.Services.AddHostedService<FlipBroadcastService>(); // Real-time flip notifications via SignalR
 
 
 var app = builder.Build();
@@ -79,6 +88,9 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapControllers();
+
+// Map SignalR hub for real-time flip notifications
+app.MapHub<FlipHub>("/hubs/flips");
 
 // Simple health check endpoint
 app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Time = DateTime.UtcNow }))
