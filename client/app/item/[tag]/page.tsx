@@ -8,6 +8,8 @@ import { Auction } from '@/types';
 import AuctionCard from '@/components/AuctionCard';
 import ItemFilterPanel from '@/components/ItemFilterPanel';
 import PriceHistoryChart from '@/components/PriceHistoryChart';
+import PriceSummary from '@/components/PriceSummary';
+import RecentAuctions from '@/components/RecentAuctions';
 import { ItemFilter, FilterOptions } from '@/types/filters';
 import { ItemFilter as PriceItemFilter } from '@/types/priceHistory';
 import { toast } from '@/components/ToastProvider';
@@ -209,12 +211,20 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
                 </div>
             </div>
 
-            {/* ===== SECTION 2: Price History Chart ===== */}
+            {/* ===== SECTION 2: Price Summary (Lowest BIN, Avg, Median) ===== */}
+            <PriceSummary itemTag={tag} itemFilter={priceChartFilter} />
+
+            {/* ===== SECTION 3: Price History Chart ===== */}
             <div className="mb-4">
                 <PriceHistoryChart itemTag={tag} itemFilter={priceChartFilter} />
             </div>
 
-            {/* ===== SECTION 3: Auctions Section ===== */}
+            {/* ===== SECTION 4: Recent/Active Auctions ===== */}
+            <div className="mb-4">
+                <RecentAuctions itemTag={tag} itemFilter={priceChartFilter} />
+            </div>
+
+            {/* ===== SECTION 5: Auctions Section ===== */}
             <div className="mb-3">
                 <h4 className="text-light mb-3">
                     Auctions

@@ -706,10 +706,11 @@ public class AuctionsController : ControllerBase
         var days = 2;
         var start = DateTime.UtcNow.AddDays(-days);
         
+        // Query sold auctions for price summary
         var query = _context.Auctions
             .Where(a => a.Tag == upperTag)
-            .Where(a => a.End > start && a.End < DateTime.UtcNow)
-            .Where(a => a.HighestBidAmount > 0);
+            .Where(a => a.Status == AuctionStatus.SOLD && a.SoldAt != null)
+            .Where(a => a.SoldAt > start);
 
         if (filters != null && filters.Count > 0)
         {
@@ -717,7 +718,7 @@ public class AuctionsController : ControllerBase
         }
 
         var prices = await query
-            .Select(a => a.HighestBidAmount)
+            .Select(a => a.SoldPrice ?? a.HighestBidAmount)
             .ToListAsync();
 
         if (prices.Count == 0)
@@ -742,6 +743,163 @@ public class AuctionsController : ControllerBase
             avg = sorted.Average(),
             med = median,
             volume = sorted.Count / days
+        });
+    }
+
+    /// <summary>
+    /// Get lowest BIN price for an item (Coflnet-compatible format)
+    /// </summary>
+    [HttpGet("item/price/{itemTag}/bin")]
+    public async Task<IActionResult> GetLowestBin(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        var upperTag = itemTag.ToUpper();
+        
+        var query = _context.Auctions
+            .Where(a => a.Tag == upperTag)
+            .Where(a => a.Status == AuctionStatus.ACTIVE)
+            .Where(a => a.Bin == true)
+            .Where(a => a.End > DateTime.UtcNow);
+
+        if (filters != null && filters.Count > 0)
+        {
+            query = ApplyFilters(query, filters);
+        }
+
+        var lowestBins = await query
+            .OrderBy(a => a.StartingBid)
+            .Take(2)
+            .Select(a => new { a.Uuid, a.StartingBid, a.ItemName })
+            .ToListAsync();
+
+        if (lowestBins.Count == 0)
+        {
+            return Ok(new 
+            {
+                lowest = (long?)null,
+                secondLowest = (long?)null,
+                uuid = (string?)null
+            });
+        }
+
+        return Ok(new 
+        {
+            lowest = lowestBins[0].StartingBid,
+            secondLowest = lowestBins.Count > 1 ? lowestBins[1].StartingBid : (long?)null,
+            uuid = lowestBins[0].Uuid,
+            itemName = lowestBins[0].ItemName
+        });
+    }
+
+    /// <summary>
+    /// Get active auctions for an item with sorting options
+    /// </summary>
+    [HttpGet("item/{itemTag}/auctions/active")]
+    public async Task<IActionResult> GetActiveAuctions(
+        string itemTag, 
+        [FromQuery] string sort = "price", 
+        [FromQuery] int page = 0, 
+        [FromQuery] int pageSize = 12,
+        [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        var upperTag = itemTag.ToUpper();
+        
+        var query = _context.Auctions
+            .Where(a => a.Tag == upperTag)
+            .Where(a => a.Status == AuctionStatus.ACTIVE)
+            .Where(a => a.End > DateTime.UtcNow);
+
+        if (filters != null && filters.Count > 0)
+        {
+            query = ApplyFilters(query, filters);
+        }
+
+        // Apply sorting
+        query = sort.ToLower() switch
+        {
+            "price" or "lowest" => query.OrderBy(a => a.Bin ? a.StartingBid : a.HighestBidAmount),
+            "price_desc" or "highest" => query.OrderByDescending(a => a.Bin ? a.StartingBid : a.HighestBidAmount),
+            "ending" or "ending_soon" => query.OrderBy(a => a.End),
+            _ => query.OrderBy(a => a.Bin ? a.StartingBid : a.HighestBidAmount)
+        };
+
+        var total = await query.CountAsync();
+        
+        var auctions = await query
+            .Skip(page * pageSize)
+            .Take(pageSize)
+            .Select(a => new 
+            {
+                a.Uuid,
+                a.ItemName,
+                a.Tag,
+                a.Tier,
+                Price = a.Bin ? a.StartingBid : a.HighestBidAmount,
+                a.Bin,
+                a.End,
+                a.AuctioneerId,
+                a.Texture,
+                TimeRemaining = (a.End - DateTime.UtcNow).TotalSeconds
+            })
+            .ToListAsync();
+
+        return Ok(new 
+        {
+            auctions,
+            total,
+            page,
+            pageSize,
+            hasMore = (page + 1) * pageSize < total
+        });
+    }
+
+    /// <summary>
+    /// Get recent sold auctions for an item
+    /// </summary>
+    [HttpGet("item/{itemTag}/auctions/sold")]
+    public async Task<IActionResult> GetSoldAuctions(
+        string itemTag, 
+        [FromQuery] int page = 0, 
+        [FromQuery] int pageSize = 12,
+        [FromQuery] IDictionary<string, string>? filters = null)
+    {
+        var upperTag = itemTag.ToUpper();
+        
+        var query = _context.Auctions
+            .Where(a => a.Tag == upperTag)
+            .Where(a => a.Status == AuctionStatus.SOLD && a.SoldAt != null);
+
+        if (filters != null && filters.Count > 0)
+        {
+            query = ApplyFilters(query, filters);
+        }
+
+        var total = await query.CountAsync();
+        
+        var auctions = await query
+            .OrderByDescending(a => a.SoldAt)
+            .Skip(page * pageSize)
+            .Take(pageSize)
+            .Select(a => new 
+            {
+                a.Uuid,
+                a.ItemName,
+                a.Tag,
+                a.Tier,
+                Price = a.SoldPrice ?? a.HighestBidAmount,
+                a.Bin,
+                a.SoldAt,
+                a.AuctioneerId,
+                a.Texture
+            })
+            .ToListAsync();
+
+        return Ok(new 
+        {
+            auctions,
+            total,
+            page,
+            pageSize,
+            hasMore = (page + 1) * pageSize < total
         });
     }
 }

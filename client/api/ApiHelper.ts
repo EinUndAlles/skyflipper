@@ -139,5 +139,72 @@ export const api = {
         
         const response = await axios.get(`${API_BASE_URL}/auctions/item/price/${itemTag}`, { params });
         return response.data;
+    },
+
+    // Get lowest BIN for an item
+    getLowestBin: async (itemTag: string, itemFilter?: ItemFilter): Promise<{
+        lowest: number | null;
+        secondLowest: number | null;
+        uuid: string | null;
+        itemName?: string;
+    }> => {
+        const params: Record<string, string> = {};
+        if (itemFilter && Object.keys(itemFilter).length > 0) {
+            Object.entries(itemFilter).forEach(([key, value]) => {
+                if (value) params[key] = value;
+            });
+        }
+        
+        const response = await axios.get(`${API_BASE_URL}/auctions/item/price/${itemTag}/bin`, { params });
+        return response.data;
+    },
+
+    // Get active auctions for an item
+    getActiveAuctions: async (
+        itemTag: string,
+        sort: 'price' | 'price_desc' | 'ending' = 'price',
+        page: number = 0,
+        pageSize: number = 12,
+        itemFilter?: ItemFilter
+    ): Promise<{
+        auctions: any[];
+        total: number;
+        page: number;
+        pageSize: number;
+        hasMore: boolean;
+    }> => {
+        const params: Record<string, any> = { sort, page, pageSize };
+        if (itemFilter && Object.keys(itemFilter).length > 0) {
+            Object.entries(itemFilter).forEach(([key, value]) => {
+                if (value) params[key] = value;
+            });
+        }
+        
+        const response = await axios.get(`${API_BASE_URL}/auctions/item/${itemTag}/auctions/active`, { params });
+        return response.data;
+    },
+
+    // Get sold auctions for an item
+    getSoldAuctions: async (
+        itemTag: string,
+        page: number = 0,
+        pageSize: number = 12,
+        itemFilter?: ItemFilter
+    ): Promise<{
+        auctions: any[];
+        total: number;
+        page: number;
+        pageSize: number;
+        hasMore: boolean;
+    }> => {
+        const params: Record<string, any> = { page, pageSize };
+        if (itemFilter && Object.keys(itemFilter).length > 0) {
+            Object.entries(itemFilter).forEach(([key, value]) => {
+                if (value) params[key] = value;
+            });
+        }
+        
+        const response = await axios.get(`${API_BASE_URL}/auctions/item/${itemTag}/auctions/sold`, { params });
+        return response.data;
     }
 };
