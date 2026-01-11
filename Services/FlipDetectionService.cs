@@ -8,6 +8,11 @@ namespace SkyFlipperSolo.Services;
 /// Background service that detects flip opportunities by comparing
 /// current BIN prices against historical median prices.
 /// Uses NBT-aware cache keys and hit count decay for accurate detection.
+/// 
+/// Performance optimizations:
+/// - Pre-loads all hit counts into memory at start of each detection cycle
+/// - Batches all hit count updates at the end of detection
+/// - Uses in-memory caching for price lookups
 /// </summary>
 public class FlipDetectionService : BackgroundService
 {
@@ -67,6 +72,11 @@ public class FlipDetectionService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = DateTime.UtcNow;
+
+        // OPTIMIZATION: Pre-load all hit counts into memory dictionary
+        var hitCountsDict = await dbContext.FlipHitCounts
+            .AsNoTracking()
+            .ToDictionaryAsync(h => h.CacheKey, h => h.HitCount, stoppingToken);
 
         // Step 1: Get hourly prices from last 24 hours
         var hourlyPrices = await dbContext.AveragePrices
@@ -129,6 +139,9 @@ public class FlipDetectionService : BackgroundService
             .ToListAsync(stoppingToken);
 
         var flips = new List<FlipOpportunity>();
+        
+        // OPTIMIZATION: Track hit updates in memory, batch write at end
+        var hitUpdates = new Dictionary<string, int>();
 
         // Step 5: Calculate flips using NBT-based matching
         // Reference: FlippingEngine.cs - match by exact cache key, add gem value back
@@ -161,9 +174,8 @@ public class FlipDetectionService : BackgroundService
                 ? auction.HighestBidAmount
                 : auction.StartingBid;
             
-            // Apply hit count decay
-            // Reference: FlippingEngine.cs - reduces expected price based on how often this item type appears
-            var decayedMedianPrice = await ApplyHitCountDecay(dbContext, cacheKey, effectiveMedian);
+            // OPTIMIZATION: Use in-memory hit count lookup instead of DB call
+            var decayedMedianPrice = ApplyHitCountDecayFromDict(hitCountsDict, cacheKey, effectiveMedian);
             
             // Reference project (lines 284-287): Low-value items get 10% extra margin requirement
             if (decayedMedianPrice < 1_000_000)
@@ -201,8 +213,10 @@ public class FlipDetectionService : BackgroundService
                     ValueBreakdown = breakdown
                 });
 
-                // Track this as a hit for decay calculation
-                await RecordFlipHit(dbContext, cacheKey);
+                // OPTIMIZATION: Track hit in memory, batch write later
+                if (!hitUpdates.ContainsKey(cacheKey))
+                    hitUpdates[cacheKey] = 0;
+                hitUpdates[cacheKey]++;
             }
         }
 
@@ -227,6 +241,12 @@ public class FlipDetectionService : BackgroundService
                 topFlip.ProfitMarginPercent,
                 topFlip.EstimatedProfit);
         }
+
+        // OPTIMIZATION: Batch update hit counts at the end
+        if (hitUpdates.Count > 0)
+        {
+            await BatchUpdateHitCounts(dbContext, hitUpdates, stoppingToken);
+        }
     }
 
     private double CalculateWeightedMedian(List<double> medians)
@@ -247,29 +267,55 @@ public class FlipDetectionService : BackgroundService
         return sorted.Count % 2 != 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2.0;
     }
 
-    private async Task<double> ApplyHitCountDecay(AppDbContext dbContext, string cacheKey, double baseMedianPrice)
+    /// <summary>
+    /// Apply hit count decay using pre-loaded dictionary (no DB call).
+    /// </summary>
+    private double ApplyHitCountDecayFromDict(Dictionary<string, int> hitCountsDict, string cacheKey, double baseMedianPrice)
     {
-        var hitCountRecord = await dbContext.FlipHitCounts.FirstOrDefaultAsync(h => h.CacheKey == cacheKey);
-        if (hitCountRecord == null || hitCountRecord.HitCount == 0) return baseMedianPrice;
+        if (!hitCountsDict.TryGetValue(cacheKey, out var hitCount) || hitCount == 0)
+            return baseMedianPrice;
         
-        var effectiveHitCount = Math.Min(hitCountRecord.HitCount, MAX_HIT_COUNT);
+        var effectiveHitCount = Math.Min(hitCount, MAX_HIT_COUNT);
         var decayFactor = Math.Pow(HIT_COUNT_DECAY_FACTOR, effectiveHitCount);
         return baseMedianPrice / decayFactor;
     }
 
-    private async Task RecordFlipHit(AppDbContext dbContext, string cacheKey)
+    /// <summary>
+    /// Batch update all hit counts in a single transaction.
+    /// </summary>
+    private async Task BatchUpdateHitCounts(AppDbContext dbContext, Dictionary<string, int> hitUpdates, CancellationToken stoppingToken)
     {
-        var hitCountRecord = await dbContext.FlipHitCounts.FirstOrDefaultAsync(h => h.CacheKey == cacheKey);
-        if (hitCountRecord == null)
+        var cacheKeys = hitUpdates.Keys.ToList();
+        var existingRecords = await dbContext.FlipHitCounts
+            .Where(h => cacheKeys.Contains(h.CacheKey))
+            .ToDictionaryAsync(h => h.CacheKey, stoppingToken);
+
+        var now = DateTime.UtcNow;
+        var newRecords = new List<FlipHitCount>();
+
+        foreach (var (cacheKey, incrementBy) in hitUpdates)
         {
-            hitCountRecord = new FlipHitCount { CacheKey = cacheKey, HitCount = 1, LastHitAt = DateTime.UtcNow };
-            dbContext.FlipHitCounts.Add(hitCountRecord);
+            if (existingRecords.TryGetValue(cacheKey, out var existing))
+            {
+                existing.HitCount += incrementBy;
+                existing.LastHitAt = now;
+            }
+            else
+            {
+                newRecords.Add(new FlipHitCount
+                {
+                    CacheKey = cacheKey,
+                    HitCount = incrementBy,
+                    LastHitAt = now
+                });
+            }
         }
-        else
+
+        if (newRecords.Count > 0)
         {
-            hitCountRecord.HitCount++;
-            hitCountRecord.LastHitAt = DateTime.UtcNow;
+            dbContext.FlipHitCounts.AddRange(newRecords);
         }
-        await dbContext.SaveChangesAsync();
+
+        await dbContext.SaveChangesAsync(stoppingToken);
     }
 }

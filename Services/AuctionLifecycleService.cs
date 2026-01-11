@@ -51,6 +51,7 @@ public class AuctionLifecycleService : BackgroundService
 
     /// <summary>
     /// Comprehensive lifecycle cleanup - ensures all auctions are in correct states.
+    /// Uses ExecuteUpdateAsync for bulk updates where possible.
     /// </summary>
     private async Task PerformLifecycleCleanup(CancellationToken stoppingToken)
     {
@@ -58,21 +59,17 @@ public class AuctionLifecycleService : BackgroundService
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = DateTime.UtcNow;
 
-        // 1. Mark auctions that have ended but are still ACTIVE as EXPIRED
-        var expiredAuctions = await dbContext.Auctions
+        // 1. OPTIMIZATION: Bulk update expired auctions using ExecuteUpdateAsync
+        var expiredCount = await dbContext.Auctions
             .Where(a => a.Status == AuctionStatus.ACTIVE && a.End < now)
-            .ToListAsync(stoppingToken);
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(a => a.Status, AuctionStatus.EXPIRED),
+                stoppingToken);
 
-        if (expiredAuctions.Count > 0)
+        if (expiredCount > 0)
         {
-            foreach (var auction in expiredAuctions)
-            {
-                auction.Status = AuctionStatus.EXPIRED;
-            }
-
-            await dbContext.SaveChangesAsync(stoppingToken);
             _logger.LogInformation("✅ Marked {Count} auctions as EXPIRED (ended before {Now})",
-                expiredAuctions.Count, now);
+                expiredCount, now);
         }
 
         // 2. Check for auctions that should be SOLD but weren't caught by auctions_ended API
@@ -127,6 +124,7 @@ public class AuctionLifecycleService : BackgroundService
 
     /// <summary>
     /// Clean up very old ended auctions to prevent database bloat.
+    /// Uses ExecuteDeleteAsync for efficient bulk deletion.
     /// </summary>
     private async Task CleanupOldEndedAuctions(CancellationToken stoppingToken)
     {
@@ -135,44 +133,39 @@ public class AuctionLifecycleService : BackgroundService
 
         var cutoffDate = DateTime.UtcNow.AddDays(-30); // Keep 30 days of history
 
-        // Only clean up auctions that have been SOLD or EXPIRED for more than 30 days
-        var oldAuctions = await dbContext.Auctions
+        // Get IDs of auctions to delete (limit to prevent memory issues)
+        var auctionIdsToDelete = await dbContext.Auctions
             .Where(a => (a.Status == AuctionStatus.SOLD || a.Status == AuctionStatus.EXPIRED) &&
                        a.End < cutoffDate)
-            .Take(1000) // Limit deletion batch size
+            .Take(1000)
+            .Select(a => a.Id)
             .ToListAsync(stoppingToken);
 
-        if (oldAuctions.Count > 0)
-        {
-            // Remove associated data first (due to foreign key constraints)
-            var auctionIds = oldAuctions.Select(a => a.Id).ToList();
+        if (auctionIdsToDelete.Count == 0) return;
 
-            // Remove enchantments
-            var enchantments = await dbContext.Enchantments
-                .Where(e => auctionIds.Contains(e.AuctionId))
-                .ToListAsync(stoppingToken);
-            dbContext.Enchantments.RemoveRange(enchantments);
+        // OPTIMIZATION: Use ExecuteDeleteAsync for bulk deletion (EF Core 7+)
+        // This generates efficient DELETE statements without loading entities
+        
+        // Delete related data first (due to foreign key constraints)
+        var enchantmentsDeleted = await dbContext.Enchantments
+            .Where(e => auctionIdsToDelete.Contains(e.AuctionId))
+            .ExecuteDeleteAsync(stoppingToken);
 
-            // Remove NBT lookups
-            var nbtLookups = await dbContext.NBTLookups
-                .Where(n => auctionIds.Contains(n.AuctionId))
-                .ToListAsync(stoppingToken);
-            dbContext.NBTLookups.RemoveRange(nbtLookups);
+        var lookupsDeleted = await dbContext.NBTLookups
+            .Where(n => auctionIdsToDelete.Contains(n.AuctionId))
+            .ExecuteDeleteAsync(stoppingToken);
 
-            // Remove bids
-            var bids = await dbContext.BidRecords
-                .Where(b => auctionIds.Contains(b.AuctionId))
-                .ToListAsync(stoppingToken);
-            dbContext.BidRecords.RemoveRange(bids);
+        var bidsDeleted = await dbContext.BidRecords
+            .Where(b => auctionIdsToDelete.Contains(b.AuctionId))
+            .ExecuteDeleteAsync(stoppingToken);
 
-            // Remove auctions
-            dbContext.Auctions.RemoveRange(oldAuctions);
+        // Delete auctions
+        var auctionsDeleted = await dbContext.Auctions
+            .Where(a => auctionIdsToDelete.Contains(a.Id))
+            .ExecuteDeleteAsync(stoppingToken);
 
-            await dbContext.SaveChangesAsync(stoppingToken);
-
-            _logger.LogInformation("🗑️ Cleaned up {Count} old auctions (ended before {Cutoff})",
-                oldAuctions.Count, cutoffDate);
-        }
+        _logger.LogInformation("🗑️ Cleaned up {Count} old auctions with {Enchants} enchants, {Lookups} lookups, {Bids} bids (ended before {Cutoff})",
+            auctionsDeleted, enchantmentsDeleted, lookupsDeleted, bidsDeleted, cutoffDate);
     }
 
     /// <summary>
@@ -238,7 +231,7 @@ public class AuctionLifecycleService : BackgroundService
 
     /// <summary>
     /// Clean up old flip hit counts to prevent database bloat.
-    /// Reset hit counts for items that haven't been flagged recently.
+    /// Uses ExecuteDeleteAsync for efficient bulk operations.
     /// </summary>
     private async Task CleanupOldFlipHitCounts(CancellationToken stoppingToken)
     {
@@ -247,25 +240,22 @@ public class AuctionLifecycleService : BackgroundService
 
         var cutoffDate = DateTime.UtcNow.AddDays(-7); // Reset after 7 days of no hits
 
-        // Find hit counts that haven't been updated recently
-        var oldHitCounts = await dbContext.FlipHitCounts
-            .Where(h => h.LastHitAt < cutoffDate)
-            .ToListAsync(stoppingToken);
+        // OPTIMIZATION: Use ExecuteUpdateAsync to decrement hit counts in bulk
+        var decremented = await dbContext.FlipHitCounts
+            .Where(h => h.LastHitAt < cutoffDate && h.HitCount > 0)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(h => h.HitCount, h => h.HitCount - 1),
+                stoppingToken);
 
-        if (oldHitCounts.Count > 0)
+        // Delete records with zero hit count
+        var deleted = await dbContext.FlipHitCounts
+            .Where(h => h.HitCount <= 0)
+            .ExecuteDeleteAsync(stoppingToken);
+
+        if (decremented > 0 || deleted > 0)
         {
-            // Reset hit counts rather than delete (preserve learning)
-            foreach (var hitCount in oldHitCounts)
-            {
-                hitCount.HitCount = Math.Max(0, hitCount.HitCount - 1); // Gradually decay
-                if (hitCount.HitCount == 0)
-                {
-                    dbContext.FlipHitCounts.Remove(hitCount);
-                }
-            }
-
-            await dbContext.SaveChangesAsync(stoppingToken);
-            _logger.LogInformation("🧹 Cleaned up {Count} old flip hit counts", oldHitCounts.Count);
+            _logger.LogInformation("🧹 Cleaned up flip hit counts: {Decremented} decremented, {Deleted} deleted",
+                decremented, deleted);
         }
     }
 }

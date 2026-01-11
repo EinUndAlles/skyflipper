@@ -44,6 +44,9 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.Tag, e.End });
             entity.HasIndex(e => new { e.Bin, e.Status, e.End });
             entity.HasIndex(e => new { e.Status, e.End });
+            
+            // Index for sold auction queries (price aggregation)
+            entity.HasIndex(e => new { e.Status, e.SoldAt });
 
             entity.HasMany(e => e.Enchantments)
                 .WithOne(e => e.Auction)
@@ -90,6 +93,8 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Timestamp);
             // Keep ItemTag index for backward compatibility
             entity.HasIndex(e => new { e.ItemTag, e.Granularity });
+            // Index for volume filtering (used in flip detection)
+            entity.HasIndex(e => new { e.Granularity, e.Timestamp, e.Volume });
         });
 
         // FlipOpportunity configuration
