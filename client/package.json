@@ -17,6 +17,7 @@
     "react-bootstrap": "^2.10.10",
     "react-dom": "19.2.3",
     "react-toastify": "^11.0.5",
+    "recharts": "^3.6.0",
     "sass": "^1.97.2"
   },
   "devDependencies": {

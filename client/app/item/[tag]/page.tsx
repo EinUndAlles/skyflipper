@@ -7,6 +7,7 @@ import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { Auction } from '@/types';
 import AuctionCard from '@/components/AuctionCard';
 import ItemFilterPanel from '@/components/ItemFilterPanel';
+import PriceHistoryChart from '@/components/PriceHistoryChart';
 import { ItemFilter, FilterOptions } from '@/types/filters';
 import { toast } from '@/components/ToastProvider';
 
@@ -14,6 +15,22 @@ interface ItemPageProps {
     params: Promise<{ tag: string }>;
     filters?: FilterOptions[];
 }
+
+// Helper to get tier color
+const getTierColor = (tier: string): string => {
+    switch (tier) {
+        case 'LEGENDARY': return '#FFAA00';
+        case 'EPIC': return '#AA00AA';
+        case 'RARE': return '#5555FF';
+        case 'UNCOMMON': return '#55FF55';
+        case 'COMMON': return '#FFFFFF';
+        case 'MYTHIC': return '#FF55FF';
+        case 'DIVINE': return '#55FFFF';
+        case 'SPECIAL': return '#FF5555';
+        case 'VERY_SPECIAL': return '#FF5555';
+        default: return '#FFFFFF';
+    }
+};
 
 export default function ItemPage({ params, filters }: ItemPageProps) {
     const resolvedParams = use(params);
@@ -65,12 +82,11 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
         if (tag) {
             fetchAuctions();
         }
-    }, [tag, nameFilter]); // Refetch when tag or nameFilter changes
+    }, [tag, nameFilter]);
 
     // Client-side filter application
     const filteredAuctions = useMemo(() => {
         let result = [...auctions];
-        console.log('Applying filters:', activeFilters, 'to', result.length, 'auctions');
 
         // BIN filter
         if (activeFilters.Bin === 'true') {
@@ -117,7 +133,6 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
             );
         }
 
-        console.log('Filtered result:', result.length, 'auctions');
         return result;
     }, [auctions, activeFilters]);
 
@@ -140,47 +155,63 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
     }
 
     const item = auctions.length > 0 ? auctions[0] : null;
+    const displayName = nameFilter ? `${nameFilter} Pet` : (item?.itemName || tag);
+    const tierColor = item ? getTierColor(item.tier) : '#FFFFFF';
 
     return (
         <Container className="py-4">
-            {item ? (
-                <div className="d-flex align-items-center mb-4 p-3 bg-dark rounded shadow-sm border border-secondary" style={{ backdropFilter: 'blur(5px)', backgroundColor: 'rgba(33, 37, 41, 0.9)' }}>
-                    <div style={{ width: '64px', height: '64px', position: 'relative' }} className="me-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                            src={getItemImageUrl(item.tag, 'default', item.texture)}
-                            alt={item.itemName}
-                            className="w-100 h-100 object-fit-contain"
-                            style={{ imageRendering: 'pixelated' }}
-                        />
-                    </div>
-                    <div>
-                        <h2 className="mb-0 text-white" style={{
-                            color: item.tier === 'LEGENDARY' ? '#FFAA00' :
-                                item.tier === 'EPIC' ? '#AA00AA' :
-                                    item.tier === 'RARE' ? '#5555FF' :
-                                        item.tier === 'UNCOMMON' ? '#55FF55' :
-                                            item.tier === 'COMMON' ? '#FFFFFF' : '#FFFFFF',
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.5)'
-                        }}>
-                            {nameFilter ? `${nameFilter} Pet` : item.itemName}
-                        </h2>
-                    </div>
+            {/* ===== SECTION 1: Item Header (Icon + Title) ===== */}
+            <div className="d-flex align-items-center mb-4 p-3 bg-dark rounded shadow-sm border border-secondary" 
+                 style={{ backdropFilter: 'blur(5px)', backgroundColor: 'rgba(33, 37, 41, 0.9)' }}>
+                <div style={{ width: '64px', height: '64px', position: 'relative' }} className="me-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                        src={item ? getItemImageUrl(item.tag, 'default', item.texture) : getItemImageUrl(tag, 'default')}
+                        alt={displayName}
+                        className="w-100 h-100 object-fit-contain"
+                        style={{ imageRendering: 'pixelated' }}
+                    />
                 </div>
-            ) : (
-                <div className="d-flex align-items-center mb-4 text-white">
-                    <h2>{tag}</h2>
+                <div>
+                    <h2 className="mb-0" style={{
+                        color: tierColor,
+                        textShadow: '2px 2px 4px rgba(0,0,0,0.5)'
+                    }}>
+                        {displayName}
+                    </h2>
+                    {item && (
+                        <small className="text-secondary">{item.tier}</small>
+                    )}
                 </div>
-            )}
+            </div>
 
-            <ItemFilterPanel
-                defaultFilter={activeFilters}
-                onFilterChange={handleFiltersChange}
-                filters={filterOptions}
-            />
+            {/* ===== SECTION 2: Price History Chart ===== */}
+            <div className="mb-4">
+                <PriceHistoryChart itemTag={tag} defaultDays={30} />
+            </div>
 
+            {/* ===== SECTION 3: Auctions Section ===== */}
+            <div className="mb-3">
+                <h4 className="text-light mb-3">
+                    Auctions
+                    <span className="text-secondary ms-2" style={{ fontSize: '0.8em' }}>
+                        ({filteredAuctions.length} found)
+                    </span>
+                </h4>
+                
+                {/* Filters */}
+                <ItemFilterPanel
+                    defaultFilter={activeFilters}
+                    onFilterChange={handleFiltersChange}
+                    filters={filterOptions}
+                />
+            </div>
+
+            {/* Auction Cards Grid */}
             {filteredAuctions.length === 0 ? (
-                <Alert variant="info" className="bg-dark text-light border-secondary">No active auctions found for this item.</Alert>
+                <Alert variant="info" className="bg-dark text-light border-secondary">
+                    No active auctions found for this item.
+                </Alert>
             ) : (
                 <Row xs={1} md={2} lg={3} xl={4} className="g-4">
                     {filteredAuctions.map(auction => (

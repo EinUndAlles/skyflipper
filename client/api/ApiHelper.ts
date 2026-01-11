@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Auction, Stats, TagCount } from '../types';
+import { PriceHistoryResponse } from '../types/priceHistory';
 
 const API_BASE_URL = 'http://localhost:5135/api';
 
@@ -93,6 +94,18 @@ export const api = {
 
     getFilters: async (tag: string): Promise<any[]> => {
         const response = await axios.get(`${API_BASE_URL}/auctions/filters/${tag}`);
+        return response.data;
+    },
+
+    getPriceHistory: async (
+        tag: string,
+        days: number = 30,
+        granularity: 'hourly' | 'daily' = 'daily'
+    ): Promise<PriceHistoryResponse> => {
+        const response = await axios.get<PriceHistoryResponse>(
+            `${API_BASE_URL}/auctions/item/${tag}/price-history`,
+            { params: { days, granularity } }
+        );
         return response.data;
     }
 };

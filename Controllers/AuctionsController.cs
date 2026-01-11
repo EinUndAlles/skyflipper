@@ -435,4 +435,77 @@ public class AuctionsController : ControllerBase
 
         return Ok(groupedItems);
     }
+
+    /// <summary>
+    /// Get price history for an item tag
+    /// </summary>
+    [HttpGet("item/{tag}/price-history")]
+    public async Task<IActionResult> GetPriceHistory(
+        string tag,
+        [FromQuery] int days = 30,
+        [FromQuery] string granularity = "daily")
+    {
+        var upperTag = tag.ToUpper();
+        var gran = granularity.ToLower() == "hourly" ? PriceGranularity.Hourly : PriceGranularity.Daily;
+        
+        // Limit days based on granularity (hourly only has 7 days of data)
+        if (gran == PriceGranularity.Hourly && days > 7)
+            days = 7;
+        
+        var cutoff = DateTime.UtcNow.AddDays(-days);
+        
+        var priceData = await _context.AveragePrices
+            .Where(p => p.ItemTag == upperTag && 
+                       p.Granularity == gran && 
+                       p.Timestamp >= cutoff)
+            .OrderBy(p => p.Timestamp)
+            .Select(p => new 
+            {
+                p.Timestamp,
+                p.Min,
+                p.Max,
+                p.Avg,
+                p.Median,
+                p.Volume
+            })
+            .ToListAsync();
+
+        if (priceData.Count == 0)
+        {
+            return Ok(new 
+            {
+                ItemTag = upperTag,
+                Granularity = granularity,
+                Data = new List<object>(),
+                Summary = (object?)null
+            });
+        }
+
+        // Calculate summary statistics
+        var totalVolume = priceData.Sum(p => p.Volume);
+        var avgMedian = priceData.Average(p => p.Median);
+        var firstPrice = priceData.First().Median;
+        var lastPrice = priceData.Last().Median;
+        var priceChange = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
+        
+        string trend = "stable";
+        if (priceChange > 5) trend = "increasing";
+        else if (priceChange < -5) trend = "decreasing";
+
+        return Ok(new 
+        {
+            ItemTag = upperTag,
+            Granularity = granularity,
+            Data = priceData,
+            Summary = new 
+            {
+                TotalVolume = totalVolume,
+                AvgMedian = avgMedian,
+                PriceChange = Math.Round(priceChange, 2),
+                Trend = trend,
+                LowestMin = priceData.Min(p => p.Min),
+                HighestMax = priceData.Max(p => p.Max)
+            }
+        });
+    }
 }
