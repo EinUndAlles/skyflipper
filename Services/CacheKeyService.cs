@@ -100,6 +100,46 @@ public class CacheKeyService
     // Pet level regex for extracting level from item name - reference line 902-912
     private static readonly Regex PetLevelRegex = new Regex(@"\[Lvl (\d+)\]", RegexOptions.Compiled);
 
+    // Attribute shard weighting - reference FlippingEngine.cs lines 67-83
+    // Higher weight = more valuable attribute, affects how we bucket attribute values
+    // Weight 3 = exact match needed, Weight 1 = broader range matching
+    private static readonly Dictionary<string, short> ShardAttributes = new()
+    {
+        { "mana_pool", 1 },
+        { "breeze", 1 },
+        { "speed", 2 },
+        { "life_regeneration", 2 },  // especially valuable in combination with mana_pool
+        { "fishing_experience", 2 },
+        { "ignition", 2 },
+        { "blazing_fortune", 2 },
+        { "double_hook", 3 },
+        { "mana_regeneration", 2 },
+        { "mending", 3 },
+        { "dominance", 3 },
+        { "magic_find", 2 },
+        { "veteran", 1 }
+        // lifeline - too low volume
+        // life_recovery - weight 3
+    };
+
+    // Cosmetic NBT keys that affect item value - reference FlippingEngine.cs lines 693-703
+    private static readonly HashSet<string> CosmeticNbtKeys = new()
+    {
+        "MUSIC",           // Music discs
+        "ENCHANT",         // Enchant rune type
+        "DRAGON",          // Dragon type
+        "TIDAL",           // Tidal items
+        "party_hat_emoji"  // Party hat emojis
+    };
+
+    // Drill part keys - reference FlippingEngine.cs lines 714-719
+    private static readonly HashSet<string> DrillPartKeys = new()
+    {
+        "drill_part_engine",
+        "drill_part_fuel_tank",
+        "drill_part_upgrade_module"
+    };
+
     // Special item NBT keys that must always be included in cache key
     // Reference: FlippingEngine.cs lines 676-704
     private static readonly Dictionary<string, HashSet<string>> SpecialItemNbtKeys = new()
@@ -495,6 +535,57 @@ public class CacheKeyService
                 continue;
             }
 
+            // Cosmetic NBT keys - reference lines 693-703
+            // MUSIC, ENCHANT, DRAGON, TIDAL, party_hat_emoji
+            if (CosmeticNbtKeys.Contains(key))
+            {
+                nbtParts.Add($"[{key}, {value}]");
+                continue;
+            }
+
+            // Armor color/dye matching - reference lines 730-734
+            // IsArmour checks: _CHESTPLATE, _BOOTS, _HELMET, _LEGGINGS
+            if (key == "color" || key == "dye_item")
+            {
+                if (IsArmor(auction.Tag) || flatNbt.ContainsKey("color"))
+                {
+                    nbtParts.Add($"[{key}, {value}]");
+                }
+                continue;
+            }
+
+            // Drill parts matching - reference lines 714-719
+            if (DrillPartKeys.Contains(key) && auction.Tag.Contains("_DRILL"))
+            {
+                nbtParts.Add($"[{key}, {value}]");
+                continue;
+            }
+
+            // Attribute keys with weighted matching - reference lines 67-83, 708-711
+            if (AttributeKeys.Contains(key))
+            {
+                // Check if this is a shard attribute with specific weighting
+                if (ShardAttributes.TryGetValue(key, out var weight))
+                {
+                    // Higher weight = narrower range (more exact matching needed)
+                    // Weight 3 = exact, Weight 2 = 20% range, Weight 1 = 40% range
+                    var rangePercent = weight switch
+                    {
+                        3 => 10,   // Narrow range for valuable attributes
+                        2 => 20,   // Medium range
+                        _ => 40    // Broader range for common attributes
+                    };
+                    var normalizedValue = NormalizeToRange(value, 0, rangePercent);
+                    nbtParts.Add($"[{key}, {normalizedValue}]");
+                }
+                else
+                {
+                    // Standard attribute - include directly
+                    nbtParts.Add($"[{key}, {value}]");
+                }
+                continue;
+            }
+
             // Special item-specific NBT keys - reference lines 676-704
             // These keys are critical for specific items (Necrons Ladder, Dianas Bookshelf, AOTV/AOTE)
             if (SpecialItemNbtKeys.TryGetValue(auction.Tag, out var requiredKeys) && requiredKeys.Contains(key))
@@ -608,6 +699,17 @@ public class CacheKeyService
     {
         if (string.IsNullOrEmpty(tag)) return false;
         return tag == "PET" || tag.StartsWith("PET_");
+    }
+
+    /// <summary>
+    /// Checks if the tag represents armor.
+    /// Reference: FlippingEngine.cs IsArmour() line 771-774
+    /// </summary>
+    public static bool IsArmor(string? tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return false;
+        return tag.EndsWith("_CHESTPLATE") || tag.EndsWith("_BOOTS") || 
+               tag.EndsWith("_HELMET") || tag.EndsWith("_LEGGINGS");
     }
 
     /// <summary>
