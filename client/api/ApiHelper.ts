@@ -73,7 +73,7 @@ export const api = {
     },
 
     getTopTags: async (limit: number = 20): Promise<TagCount[]> => {
-        const response = await axios.get<TagCount[]>(`${API_BASE_URL}/auctions/top-tags`, {
+        const response = await axios.get<TagCount[]>(`${API_BASE_URL}/auctions/tags/popular`, {
             params: { limit }
         });
         return response.data;
@@ -88,6 +88,11 @@ export const api = {
         const response = await axios.get(`${API_BASE_URL}/auctions/search`, {
             params: { query, limit }
         });
+        return response.data;
+    },
+
+    getFilters: async (tag: string): Promise<any[]> => {
+        const response = await axios.get(`${API_BASE_URL}/auctions/filters/${tag}`);
         return response.data;
     }
 };

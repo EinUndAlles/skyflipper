@@ -1,6 +1,7 @@
 'use client';
 
 import { Form } from 'react-bootstrap';
+import { FilterOptions } from '@/types/filters';
 
 interface Props {
     onChange(value: string): void;

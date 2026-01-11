@@ -25,6 +25,6 @@ public static class FilterTypeHelper
 {
     public static bool HasFlag(FilterType? full, FilterType flag)
     {
-        return full.HasValue && flag.HasValue && (full.Value & flag) == flag;
+        return full.HasValue && (full.Value & flag) == flag;
     }
 }

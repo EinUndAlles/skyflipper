@@ -12,6 +12,13 @@ export enum FilterType {
     SHOW_ICON = 1024
 }
 
+export class FilterTypeHelper {
+    public static HasFlag(full: FilterType | null, flag: FilterType): boolean {
+        if (full === null) return false;
+        return (full & flag) === flag;
+    }
+}
+
 export interface FilterOptions {
     name: string;
     type: FilterType;

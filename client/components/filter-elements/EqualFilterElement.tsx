@@ -1,7 +1,7 @@
 'use client';
 
 import { Form } from 'react-bootstrap';
-import { getDecimalSeparator, getThousandSeparator } from '../../../utils/Formatter';
+import { FilterOptions } from '@/types/filters';
 
 interface Props {
     onChange(value: string): void;
@@ -35,3 +35,5 @@ export function EqualFilterElement({ onChange, options, defaultValue, isValid }:
         </Form.Select>
     );
 }
+
+export default EqualFilterElement;

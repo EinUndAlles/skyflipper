@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Container, Row, Col, Spinner, Alert } from 'react-bootstrap';
 import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { Auction } from '@/types';
 import AuctionCard from '@/components/AuctionCard';
-import ItemFilterPanel, { ItemFilters } from '@/components/ItemFilterPanel';
+import ItemFilterPanel from '@/components/ItemFilterPanel';
+import { ItemFilter, FilterOptions } from '@/types/filters';
 import { toast } from '@/components/ToastProvider';
 
 interface ItemPageProps {
@@ -23,13 +24,34 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
     const [auctions, setAuctions] = useState<Auction[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [activeFilters, setActiveFilters] = useState<ItemFilters>({});
+    const [activeFilters, setActiveFilters] = useState<ItemFilter>({});
+    const [filterOptions, setFilterOptions] = useState<FilterOptions[]>([]);
+
+    const handleFiltersChange = (newFilters: ItemFilter) => {
+        console.log('Filters changed:', newFilters);
+        setActiveFilters(newFilters);
+    };
+
+    // Fetch filter options on mount
+    useEffect(() => {
+        const fetchFilters = async () => {
+            try {
+                const data = await api.getFilters(tag);
+                setFilterOptions(data);
+            } catch (err) {
+                console.error('Failed to load filters:', err);
+            }
+        };
+        if (tag) {
+            fetchFilters();
+        }
+    }, [tag]);
 
     useEffect(() => {
         const fetchAuctions = async () => {
             try {
                 setLoading(true);
-                const data = await api.getAuctionsByTag(tag, 200, activeFilters);
+                const data = await api.getAuctionsByTag(tag, 200, nameFilter);
                 setAuctions(data);
             } catch (err) {
                 console.error(err);
@@ -43,7 +65,61 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
         if (tag) {
             fetchAuctions();
         }
-    }, [tag, activeFilters]);
+    }, [tag, nameFilter]); // Refetch when tag or nameFilter changes
+
+    // Client-side filter application
+    const filteredAuctions = useMemo(() => {
+        let result = [...auctions];
+        console.log('Applying filters:', activeFilters, 'to', result.length, 'auctions');
+
+        // BIN filter
+        if (activeFilters.Bin === 'true') {
+            result = result.filter(a => a.bin);
+        } else if (activeFilters.Bin === 'false') {
+            result = result.filter(a => !a.bin);
+        }
+
+        // Rarity filter
+        if (activeFilters.Rarity) {
+            result = result.filter(a => a.tier === activeFilters.Rarity);
+        }
+
+        // Min Price filter
+        if (activeFilters.MinPrice) {
+            const minPrice = parseInt(activeFilters.MinPrice);
+            if (!isNaN(minPrice)) {
+                result = result.filter(a => a.price >= minPrice);
+            }
+        }
+
+        // Max Price filter
+        if (activeFilters.MaxPrice) {
+            const maxPrice = parseInt(activeFilters.MaxPrice);
+            if (!isNaN(maxPrice)) {
+                result = result.filter(a => a.price <= maxPrice);
+            }
+        }
+
+        // Reforge filter
+        if (activeFilters.Reforge) {
+            result = result.filter(a =>
+                a.reforge && a.reforge.toLowerCase() === activeFilters.Reforge.toLowerCase()
+            );
+        }
+
+        // Enchantment filter
+        if (activeFilters.Enchantment) {
+            result = result.filter(a =>
+                a.enchantments && a.enchantments.some(e => {
+                    const enchType = typeof e.type === 'string' ? e.type : String(e.type);
+                    return enchType.toLowerCase() === activeFilters.Enchantment.toLowerCase();
+                })
+            );
+        }
+
+        console.log('Filtered result:', result.length, 'auctions');
+        return result;
+    }, [auctions, activeFilters]);
 
     if (loading) {
         return (
@@ -63,7 +139,6 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
         );
     }
 
-    const filteredAuctions = getFilteredAuctions();
     const item = auctions.length > 0 ? auctions[0] : null;
 
     return (
@@ -99,9 +174,9 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
             )}
 
             <ItemFilterPanel
-                initialFilters={activeFilters}
-                onFilterChange={setActiveFilters}
-                filters={filters}
+                defaultFilter={activeFilters}
+                onFilterChange={handleFiltersChange}
+                filters={filterOptions}
             />
 
             {filteredAuctions.length === 0 ? (

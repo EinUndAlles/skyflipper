@@ -304,6 +304,12 @@ public class AuctionsController : ControllerBase
 
         return Ok(commonFilters);
     }
+
+    /// <summary>
+    /// Get trending/popular item tags
+    /// </summary>
+    [HttpGet("tags/popular")]
+    public async Task<IActionResult> GetPopularTags([FromQuery] int limit = 20)
     {
         var tags = await _context.Auctions
             .Where(a => !string.IsNullOrEmpty(a.Tag))
