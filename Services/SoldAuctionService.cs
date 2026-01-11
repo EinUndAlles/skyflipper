@@ -83,7 +83,7 @@ public class SoldAuctionService : BackgroundService
     private async Task CheckForSoldAuctions(CancellationToken stoppingToken)
     {
         // Call Hypixel's auctions_ended API
-        var response = await _httpClient.GetAsync("/v2/skyblock/auctions_ended", stoppingToken);
+        var response = await _httpClient.GetAsync("auctions_ended", stoppingToken);
         
         if (!response.IsSuccessStatusCode)
         {

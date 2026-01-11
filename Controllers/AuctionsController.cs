@@ -576,11 +576,11 @@ public class AuctionsController : ControllerBase
         var end = DateTime.UtcNow;
         
         // Build base query for sold auctions
+        // Use SoldPrice if available (from auctions_ended API), otherwise HighestBidAmount
         var query = _context.Auctions
             .Where(a => a.Tag == upperTag)
             .Where(a => a.End > start && a.End < end)
-            .Where(a => a.HighestBidAmount > 0) // Only sold auctions
-            .Where(a => a.Status == AuctionStatus.SOLD || a.End < DateTime.UtcNow);
+            .Where(a => a.Status == AuctionStatus.SOLD || (a.HighestBidAmount > 0 && a.End < DateTime.UtcNow));
 
         // Apply filters if provided
         if (filters != null && filters.Count > 0)
@@ -595,15 +595,16 @@ public class AuctionsController : ControllerBase
             if (hourlyGrouping)
             {
                 // Group by date and hour for day/week views
+                // Use SoldPrice if available, otherwise HighestBidAmount
                 dbResult = await query
                     .GroupBy(a => new { a.End.Date, a.End.Hour })
                     .Select(g => new 
                     {
                         Date = g.Key.Date,
                         Hour = g.Key.Hour,
-                        Avg = g.Average(a => (double)a.HighestBidAmount),
-                        Max = g.Max(a => a.HighestBidAmount),
-                        Min = g.Min(a => a.HighestBidAmount),
+                        Avg = g.Average(a => (double)(a.SoldPrice ?? a.HighestBidAmount)),
+                        Max = g.Max(a => a.SoldPrice ?? a.HighestBidAmount),
+                        Min = g.Min(a => a.SoldPrice ?? a.HighestBidAmount),
                         Volume = g.Count()
                     })
                     .OrderBy(x => x.Date).ThenBy(x => x.Hour)
@@ -612,15 +613,16 @@ public class AuctionsController : ControllerBase
             else
             {
                 // Group by date only for month view
+                // Use SoldPrice if available, otherwise HighestBidAmount
                 dbResult = await query
                     .GroupBy(a => a.End.Date)
                     .Select(g => new 
                     {
                         Date = g.Key,
                         Hour = 0,
-                        Avg = g.Average(a => (double)a.HighestBidAmount),
-                        Max = g.Max(a => a.HighestBidAmount),
-                        Min = g.Min(a => a.HighestBidAmount),
+                        Avg = g.Average(a => (double)(a.SoldPrice ?? a.HighestBidAmount)),
+                        Max = g.Max(a => a.SoldPrice ?? a.HighestBidAmount),
+                        Min = g.Min(a => a.SoldPrice ?? a.HighestBidAmount),
                         Volume = g.Count()
                     })
                     .OrderBy(x => x.Date)
