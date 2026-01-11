@@ -514,7 +514,6 @@ public class AuctionsController : ControllerBase
     /// Matches the Coflnet API format: /api/item/price/{itemTag}/history/day
     /// </summary>
     [HttpGet("item/price/{itemTag}/history/day")]
-    [ResponseCache(Duration = 120, VaryByQueryKeys = new[] { "*" })]
     public async Task<IActionResult> GetDayHistory(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
     {
         return await GetPriceHistoryFromAuctions(itemTag, TimeSpan.FromDays(1), true, filters);
@@ -524,7 +523,6 @@ public class AuctionsController : ControllerBase
     /// Get price history for 1 week (hourly data points) - real-time from sold auctions
     /// </summary>
     [HttpGet("item/price/{itemTag}/history/week")]
-    [ResponseCache(Duration = 1800, VaryByQueryKeys = new[] { "*" })]
     public async Task<IActionResult> GetWeekHistory(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
     {
         return await GetPriceHistoryFromAuctions(itemTag, TimeSpan.FromDays(7), true, filters);
@@ -534,7 +532,6 @@ public class AuctionsController : ControllerBase
     /// Get price history for 1 month (daily data points) - real-time from sold auctions
     /// </summary>
     [HttpGet("item/price/{itemTag}/history/month")]
-    [ResponseCache(Duration = 7200, VaryByQueryKeys = new[] { "*" })]
     public async Task<IActionResult> GetMonthHistory(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
     {
         return await GetPriceHistoryFromAuctions(itemTag, TimeSpan.FromDays(30), false, filters);
@@ -544,7 +541,6 @@ public class AuctionsController : ControllerBase
     /// Get full price history (daily data points) - from pre-aggregated table
     /// </summary>
     [HttpGet("item/price/{itemTag}/history/full")]
-    [ResponseCache(Duration = 7200)]
     public async Task<IActionResult> GetFullHistory(string itemTag)
     {
         var upperTag = itemTag.ToUpper();
@@ -701,7 +697,6 @@ public class AuctionsController : ControllerBase
     /// Get price summary for an item (current market data)
     /// </summary>
     [HttpGet("item/price/{itemTag}")]
-    [ResponseCache(Duration = 1800, VaryByQueryKeys = new[] { "*" })]
     public async Task<IActionResult> GetPriceSummary(string itemTag, [FromQuery] IDictionary<string, string>? filters = null)
     {
         var upperTag = itemTag.ToUpper();
