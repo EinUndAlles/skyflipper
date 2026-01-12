@@ -528,6 +528,19 @@ public class CacheKeyService
                 continue;
             }
 
+            // Pet candy handling - reference AddCandySelect() lines 850-862
+            // Special logic: max exp pets with skins compare by skin absence, not candy
+            // Otherwise: binary check (candy > 0 vs candy == 0)
+            if (key == "candyUsed")
+            {
+                var candyValue = GetCandyCacheValue(flatNbt, value);
+                if (candyValue != null)
+                {
+                    nbtParts.Add($"[{key}, {candyValue}]");
+                }
+                continue;
+            }
+
             // Cake Soul - captured_player - reference line 671
             if (key == "captured_player")
             {
@@ -685,6 +698,35 @@ public class CacheKeyService
 
         // Other held items - include in match
         return true;
+    }
+
+    /// <summary>
+    /// Gets the cache key value for candyUsed.
+    /// Reference: FlippingEngine.cs AddCandySelect() lines 850-862
+    /// 
+    /// Special logic:
+    /// - If pet has max exp (>24M) AND has a skin → return null (compare by skin, not candy)
+    /// - Otherwise: binary check (">0" vs "0")
+    /// </summary>
+    private static string? GetCandyCacheValue(Dictionary<string, string> flatNbt, string candyValue)
+    {
+        // Parse candy value
+        if (!long.TryParse(candyValue, out var candy))
+            return candyValue;
+
+        // Special case: max exp pet with skin - reference lines 854-858
+        // For max level pets with skins, candy doesn't matter - they compare by skin instead
+        if (flatNbt.TryGetValue("exp", out var expStr) &&
+            double.TryParse(expStr, out var exp) &&
+            exp > 24_000_000 &&
+            flatNbt.ContainsKey("skin"))
+        {
+            // Don't include candy in cache key - skin matching takes precedence
+            return null;
+        }
+
+        // Binary check: candy > 0 vs candy == 0 - reference lines 859-861
+        return candy > 0 ? ">0" : "0";
     }
 
     /// <summary>

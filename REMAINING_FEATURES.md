@@ -27,6 +27,7 @@ All P0, P1, and P2 accuracy-affecting features have been implemented:
 | Ability Scroll Extraction | ✅ | `NbtParserService.cs` - ability_scroll array extraction |
 | Composite Tags (PET/POTION/RUNE/ABICASE) | ✅ | `NbtParserService.cs` - GetCompositeItemId() |
 | NBT Flattening (50+ keys) | ✅ | `NbtParserService.cs` - FlattenNbtData() |
+| Candy Used Special Logic | ✅ | `CacheKeyService.cs` - GetCandyCacheValue() with binary check + max-exp skin case |
 
 ---
 
@@ -69,34 +70,9 @@ Prometheus.Histogram runtroughTime = Prometheus.Metrics.CreateHistogram("sky_fli
 
 ---
 
-### 3. Candy Used Special Logic
-**Reference**: `FlippingEngine.cs` `AddCandySelect()` lines 850-862
-
-Special handling for pet candy:
-- If pet has max exp (>24M) and has a skin, filter by skin absence (not candy)
-- Binary check: candy used > 0 vs = 0
-
-```csharp
-if (flatNbt.TryGetValue("exp", out string expString) && double.TryParse(expString, out double exp) 
-    && exp > 24_000_000 && flatNbt.ContainsKey("skin"))
-{
-    // Filter by skin absence instead of candy
-    return select.Where(a => !a.NBTLookup.Where(n => n.KeyId == skinid).Any());
-}
-if (val > 0)
-    return select.Where(a => a.NBTLookup.Where(n => n.KeyId == keyId && n.Value > 0).Any());
-return select.Where(a => a.NBTLookup.Where(n => n.KeyId == keyId && n.Value == 0).Any());
-```
-
-**Implementation needed**:
-- Update `BuildNbtString()` to handle candy as binary (0 vs >0)
-- Add max-exp + skin special case in CacheKeyService
-
----
-
 ## Future Enhancements (Not in Reference)
 
-### 4. Unit Tests
+### 3. Unit Tests
 **Priority**: P2
 
 No unit tests currently exist. Key areas to test:
@@ -106,7 +82,7 @@ No unit tests currently exist. Key areas to test:
 
 ---
 
-### 5. Performance Optimization
+### 4. Performance Optimization
 **Priority**: P3
 
 Potential improvements:
@@ -116,7 +92,7 @@ Potential improvements:
 
 ---
 
-### 6. Frontend Improvements
+### 5. Frontend Improvements
 **Priority**: P3
 
 The React frontend in `/client` could use:
@@ -149,11 +125,11 @@ The remaining 0.5% are edge cases and items with very low volume where exact mat
 - [x] P2: Bid Flip Detection
 - [x] P2: Unlocked Slots Date Filter
 - [x] P2: Drill Parts Matching
+- [x] P3: Candy Used Special Logic
 
 ### Remaining
 - [ ] P3: Debug API Endpoints
 - [ ] P3: Prometheus Metrics
-- [ ] P3: Candy Used Special Logic (edge case)
 - [ ] P2: Unit Tests
 - [ ] P3: Performance Optimization
 - [ ] P3: Frontend Improvements
