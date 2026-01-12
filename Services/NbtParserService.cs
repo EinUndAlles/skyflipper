@@ -128,7 +128,9 @@ public class NbtParserService
         }
 
         // Extract item ID (tag) - this is the Skyblock internal ID
-        var itemId = extraTag.Get<NbtString>("id")?.StringValue;
+        // Use composite tag generation for special items (potions, runes, pets, abicase)
+        // Reference: dev/Data/NBT.cs ItemIdFromExtra() lines 1104-1131
+        var itemId = GetCompositeItemId(extraTag);
         if (!string.IsNullOrEmpty(itemId))
         {
             auction.Tag = itemId;
@@ -265,6 +267,100 @@ public class NbtParserService
         return null;
     }
 
+    /// <summary>
+    /// Generates composite item IDs for special item types.
+    /// Reference: dev/Data/NBT.cs ItemIdFromExtra() lines 1104-1131
+    /// 
+    /// Examples:
+    /// - PET → PET_DRAGON, PET_WOLF
+    /// - POTION → POTION_SPEED, POTION_STRENGTH
+    /// - *_RUNE / UNIQUE_RUNE → UNIQUE_RUNE_ICE, COMMON_RUNE_BLOOD
+    /// - ABICASE → ABICASE_model_name
+    /// </summary>
+    private string? GetCompositeItemId(NbtCompound extraTag)
+    {
+        var id = extraTag.Get<NbtString>("id")?.StringValue;
+        if (string.IsNullOrEmpty(id))
+            return null;
+
+        // PET → PET_{petType}
+        if (id == "PET")
+        {
+            id = GetPetId(extraTag, id);
+        }
+        // POTION → POTION_{potionType}
+        else if (id == "POTION")
+        {
+            if (extraTag.TryGet("potion", out NbtTag? potionTag) && potionTag is NbtString potionStr)
+            {
+                id = $"{id}_{potionStr.StringValue}";
+            }
+        }
+        // *RUNE → {base}_{runeType} (e.g., UNIQUE_RUNE_ICE)
+        else if (id.EndsWith("RUNE"))
+        {
+            if (extraTag.TryGet("runes", out NbtTag? runesTag) && runesTag is NbtCompound runes)
+            {
+                var runeType = runes.Tags?.FirstOrDefault()?.Name;
+                if (!string.IsNullOrEmpty(runeType))
+                {
+                    id = $"{id}_{runeType}";
+                }
+            }
+        }
+        // ABICASE → ABICASE_{model}
+        else if (id == "ABICASE")
+        {
+            if (extraTag.TryGet("model", out NbtTag? modelTag) && modelTag is NbtString modelStr)
+            {
+                id = $"{id}_{modelStr.StringValue}";
+            }
+        }
+
+        return id;
+    }
+
+    /// <summary>
+    /// Extracts pet type from petInfo to create composite tag.
+    /// Reference: dev/Data/NBT.cs GetPetId() lines 1133-1156
+    /// </summary>
+    private string GetPetId(NbtCompound extraTag, string baseId)
+    {
+        try
+        {
+            // petInfo is typically a JSON string
+            if (extraTag.TryGet("petInfo", out NbtTag? petInfoTag))
+            {
+                if (petInfoTag is NbtString petInfoStr)
+                {
+                    var petData = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(petInfoStr.StringValue);
+                    if (petData.TryGetProperty("type", out var typeElement))
+                    {
+                        var petType = typeElement.GetString();
+                        if (!string.IsNullOrEmpty(petType))
+                        {
+                            return $"{baseId}_{petType}";
+                        }
+                    }
+                }
+                // petInfo can also be a compound (less common)
+                else if (petInfoTag is NbtCompound petInfoCompound)
+                {
+                    if (petInfoCompound.TryGet("type", out NbtTag? typeTag) && typeTag is NbtString typeStr)
+                    {
+                        return $"{baseId}_{typeStr.StringValue}";
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to extract pet type from petInfo");
+        }
+
+        return $"{baseId}_unknown";
+    }
+
     private List<Enchantment> ParseEnchantments(NbtCompound extraTag)
     {
         var enchantments = new List<Enchantment>();
@@ -293,30 +389,83 @@ public class NbtParserService
         return enchantments;
     }
 
+    /// <summary>
+    /// Flattens NBT data for cache key generation and price matching.
+    /// Reference: dev/Data/NBT.cs FlattenNbtData() lines 493-612, ValidKeys lines 271-339
+    /// </summary>
     private Dictionary<string, string> FlattenNbtData(NbtCompound extraTag)
     {
         var flat = new Dictionary<string, string>();
 
-        // Key attributes to extract
+        // ===== BASIC ATTRIBUTES =====
+        // Reference: dev/Data/NBT.cs ValidKeys + common value-affecting attributes
         var keysToExtract = new[]
         {
+            // Core item attributes
             "dungeon_item_level", // Stars
-            "upgrade_level", // Stars (alternative)
-            "rarity_upgrades", // Recombobulator
-            "hot_potato_count", // Hot potato books
-            "art_of_war_count", // Art of war
+            "upgrade_level",      // Stars (alternative)
+            "rarity_upgrades",    // Recombobulator
+            "hot_potato_count",   // Hot potato books
+            "art_of_war_count",   // Art of war
             "farming_for_dummies_count",
             "ethermerge",
-            "skin",
-            "ability_scroll",
-            "unlocked_slots",
             "edition",
-            "winning_bid", // Midas
-            "candyUsed", // Pet candy
-            "heldItem", // Pet item
-            "exp", // Pet exp
-            "level", // Pet level
-            "uuid", // Item UID for deduplication
+            "winning_bid",        // Midas
+            "uuid",               // Item UID for deduplication
+            
+            // Pet attributes
+            "candyUsed",
+            "heldItem",
+            "exp",
+            "level",
+            "skin",
+            
+            // Potion attributes - Reference: ValidKeys lines 273-285
+            "potion",
+            "potion_type",
+            "potion_name",
+            "splash",
+            "extended",
+            "enhanced",
+            "effect",
+            "duration",
+            
+            // Cosmetic attributes - Reference: ValidKeys lines 279-301
+            "party_hat_color",
+            "backpack_color",
+            "repelling_color",
+            "spray",
+            
+            // Special item attributes - Reference: ValidKeys lines 284-295
+            "captured_player",     // Cake souls
+            "leaderboard_player",
+            "mob_id",
+            "event",
+            "initiator_player",
+            "cake_owner",
+            
+            // Talisman/accessory attributes
+            "talisman_enrichment",
+            
+            // Dye
+            "dye_item",
+            
+            // Tool modes
+            "fungi_cutter_mode",
+            
+            // Dungeon attributes - Reference: ValidKeys lines 275-286
+            "dungeon_skill_req",
+            "dungeon_paper_id",
+            
+            // Drill parts - Reference: ValidKeys lines 281-283
+            "drill_part_engine",
+            "drill_part_fuel_tank",
+            "drill_part_upgrade_module",
+            
+            // Misc
+            "last_potion_ingredient",
+            "power_ability_scroll",
+            "entity_required",
         };
 
         foreach (var key in keysToExtract)
@@ -327,16 +476,63 @@ public class NbtParserService
             }
         }
 
-        // Extract gem slots
+        // ===== ABILITY SCROLL / MIXINS / UNLOCKED SLOTS - String Array Unwrapping =====
+        // Reference: dev/Data/NBT.cs UnwarpStringArray() lines 636-651
+        ExtractStringArray(extraTag, "ability_scroll", flat);
+        ExtractStringArray(extraTag, "mixins", flat);
+        ExtractStringArray(extraTag, "unlocked_slots", flat);
+
+        // ===== PERSONAL COMPACTOR/DELETOR SLOTS =====
+        // Reference: dev/Data/NBT.cs KeysWithItem lines 348-390
+        for (int i = 0; i <= 11; i++)
+        {
+            var compactKey = $"personal_compact_{i}";
+            var compactorKey = $"personal_compactor_{i}";
+            var deletorKey = $"personal_deletor_{i}";
+            
+            if (extraTag.TryGet(compactKey, out NbtTag? compactTag))
+                flat[compactKey] = GetTagValue(compactTag);
+            if (extraTag.TryGet(compactorKey, out NbtTag? compactorTag))
+                flat[compactorKey] = GetTagValue(compactorTag);
+            if (i <= 9 && extraTag.TryGet(deletorKey, out NbtTag? deletorTag))
+                flat[deletorKey] = GetTagValue(deletorTag);
+        }
+
+        // ===== FISHING ROD PARTS =====
+        // Reference: dev/Data/NBT.cs UnwrapRodPart() lines 614-634
+        ExtractRodPart(extraTag, "sinker", flat);
+        ExtractRodPart(extraTag, "line", flat);
+        ExtractRodPart(extraTag, "hook", flat);
+
+        // ===== GEM SLOTS WITH QUALITY + UUID =====
+        // Reference: dev/Data/NBT.cs lines 536-594
         if (extraTag.TryGet("gems", out NbtTag? gemsTag) && gemsTag is NbtCompound gems)
         {
             foreach (var gem in gems)
             {
-                flat[gem.Name] = GetTagValue(gem);
+                if (gem is NbtString gemStr)
+                {
+                    // Simple gem slot: COMBAT_0 = "PERFECT"
+                    flat[gem.Name] = gemStr.StringValue;
+                }
+                else if (gem is NbtCompound gemCompound)
+                {
+                    // Complex gem slot with quality and uuid
+                    // Reference: lines 566-580
+                    if (gemCompound.TryGet("quality", out NbtTag? qualityTag))
+                        flat[gem.Name] = GetTagValue(qualityTag);
+                    if (gemCompound.TryGet("uuid", out NbtTag? uuidTag))
+                        flat[$"{gem.Name}.uuid"] = GetTagValue(uuidTag);
+                }
+                else
+                {
+                    // Fallback for other types
+                    flat[gem.Name] = GetTagValue(gem);
+                }
             }
         }
 
-        // Extract attributes (Kuudra gear)
+        // ===== KUUDRA/CRIMSON ISLE ATTRIBUTES =====
         if (extraTag.TryGet("attributes", out NbtTag? attrsTag) && attrsTag is NbtCompound attrs)
         {
             foreach (var attr in attrs)
@@ -345,7 +541,124 @@ public class NbtParserService
             }
         }
 
+        // ===== RUNES =====
+        // Reference: dev/Data/NBT.cs lines 595-602
+        // Flattens to RUNE_{runeName}={level} format
+        if (extraTag.TryGet("runes", out NbtTag? runesTag) && runesTag is NbtCompound runes)
+        {
+            foreach (var rune in runes)
+            {
+                flat[$"RUNE_{rune.Name}"] = GetTagValue(rune);
+            }
+        }
+
+        // ===== NECROMANCER SOULS =====
+        // Reference: dev/Data/NBT.cs UnwrapSouls() lines 670-690
+        if (extraTag.TryGet("necromancer_souls", out NbtTag? soulsTag) && soulsTag is NbtList soulsList)
+        {
+            var soulCounts = new Dictionary<string, int>();
+            foreach (var soulEntry in soulsList)
+            {
+                if (soulEntry is NbtCompound soulCompound)
+                {
+                    foreach (var kv in soulCompound)
+                    {
+                        var soulName = GetTagValue(kv);
+                        if (!string.IsNullOrEmpty(soulName))
+                        {
+                            soulCounts.TryGetValue(soulName, out int count);
+                            soulCounts[soulName] = count + 1;
+                        }
+                    }
+                }
+            }
+            foreach (var soul in soulCounts)
+            {
+                flat[soul.Key] = soul.Value.ToString();
+            }
+        }
+
+        // ===== EFFECTS LIST (Potions) =====
+        // Reference: dev/Data/NBT.cs UnwrapList() lines 653-668
+        if (extraTag.TryGet("effects", out NbtTag? effectsTag) && effectsTag is NbtList effectsList)
+        {
+            foreach (var effectEntry in effectsList)
+            {
+                if (effectEntry is NbtCompound effectCompound)
+                {
+                    foreach (var kv in effectCompound)
+                    {
+                        flat[kv.Name] = GetTagValue(kv);
+                    }
+                }
+            }
+        }
+
+        // ===== BACKPACK DATA (just mark presence) =====
+        var backpackTypes = new[] { "small", "medium", "large", "greater", "jumbo", "new_year_cake_bag" };
+        foreach (var bp in backpackTypes)
+        {
+            var key = $"{bp}_backpack_data";
+            if (extraTag.Contains(key))
+                flat[key] = "1";
+        }
+        if (extraTag.Contains("builder's_wand_data"))
+            flat["builder's_wand_data"] = "1";
+
         return flat;
+    }
+
+    /// <summary>
+    /// Extracts string array NBT and joins into space-separated string.
+    /// Reference: dev/Data/NBT.cs UnwarpStringArray() lines 636-651
+    /// </summary>
+    private void ExtractStringArray(NbtCompound extraTag, string key, Dictionary<string, string> flat)
+    {
+        if (!extraTag.TryGet(key, out NbtTag? tag))
+            return;
+
+        if (tag is NbtList list)
+        {
+            var values = new List<string>();
+            foreach (var item in list)
+            {
+                if (item is NbtString str)
+                    values.Add(str.StringValue);
+                else
+                    values.Add(GetTagValue(item));
+            }
+            if (values.Count > 0)
+            {
+                values.Sort(); // Reference sorts alphabetically
+                flat[key] = string.Join(" ", values);
+            }
+        }
+        else if (tag is NbtString strTag)
+        {
+            flat[key] = strTag.StringValue;
+        }
+    }
+
+    /// <summary>
+    /// Extracts fishing rod part data (sinker, line, hook).
+    /// Reference: dev/Data/NBT.cs UnwrapRodPart() lines 614-634
+    /// </summary>
+    private void ExtractRodPart(NbtCompound extraTag, string partName, Dictionary<string, string> flat)
+    {
+        if (!extraTag.TryGet(partName, out NbtTag? partTag))
+            return;
+
+        if (partTag is NbtCompound partCompound)
+        {
+            if (partCompound.TryGet("uuid", out NbtTag? uuidTag))
+                flat[$"{partName}.uuid"] = GetTagValue(uuidTag);
+            if (partCompound.TryGet("part", out NbtTag? partTypeTag))
+                flat[$"{partName}.part"] = GetTagValue(partTypeTag);
+        }
+        else if (partTag is NbtString partStr)
+        {
+            flat[partName] = partStr.StringValue;
+        }
     }
 
     private string GetTagValue(NbtTag tag)
