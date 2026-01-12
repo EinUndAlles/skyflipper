@@ -70,6 +70,7 @@ builder.Services.AddHostedService<FlipperService>();
 builder.Services.AddHostedService<SoldAuctionService>(); // Keep for auctions_ended API integration
 builder.Services.AddHostedService<PriceAggregationService>();
 builder.Services.AddHostedService<FlipDetectionService>();
+builder.Services.AddHostedService<BidFlipDetectionService>(); // Non-BIN auction flip detection
 builder.Services.AddHostedService<FlipBroadcastService>(); // Real-time flip notifications via SignalR
 
 

@@ -222,7 +222,7 @@ return select.Where(a => a.NBTLookup.Where(n => n.KeyId == keyId && n.Value == 0
 - [x] P1: Attribute Shard Weighting ✅ (CacheKeyService.cs - ShardAttributes dict with weight-based range matching)
 - [x] P1: Armor Color/Dye NBT Matching ✅ (CacheKeyService.cs - color, dye_item keys + IsArmor helper)
 - [x] P1: Cosmetic NBT Keys (MUSIC, DRAGON, TIDAL, party_hat_emoji) ✅
-- [ ] P2: Bid Flip Detection
+- [x] P2: Bid Flip Detection ✅ (BidFlipDetectionService.cs - non-BIN auctions ending in 30s-2min)
 - [x] P2: Unlocked Slots Date Filter ✅ (PriceAggregationService.cs - GemstoneIntroductionDate 2021-09-04)
 - [x] P2: Drill Parts Matching ✅ (CacheKeyService.cs - DrillPartKeys)
 - [ ] P3: Debug API Endpoints
@@ -237,6 +237,6 @@ With all P0 features implemented: **~97%**
 
 After P1 features: **~99%** ✅ DONE
 
-After P2 features: **~99.5%** (Unlocked Slots done, Bid Flip Detection pending)
+After P2 features: **~99.5%** ✅ DONE (All P2 complete)
 
 The remaining 0.5% are edge cases and items with very low volume where exact matching is difficult.
