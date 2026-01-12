@@ -217,90 +217,117 @@ export default function FlipsPage() {
             <Row className="g-4">
                 {flips.map((flip) => (
                     <Col key={flip.auctionUuid} xs={12} md={6} lg={4} xl={3}>
-                        <Card className="h-100 bg-dark border-secondary text-light shadow-sm hover-shadow transition-all">
-                            <Card.Header className="d-flex justify-content-between align-items-center border-secondary bg-dark bg-opacity-50">
-                                <Badge bg="secondary" className="text-truncate" style={{ maxWidth: '120px' }}>
-                                    {flip.itemTag}
-                                </Badge>
-                                <small className="text-muted" title={`Detected at ${new Date(flip.detectedAt).toLocaleString()}`}>
-                                    {formatTime(flip.detectedAt)}
-                                </small>
-                            </Card.Header>
+                        <div className="h-100 d-flex flex-column" style={{
+                            backgroundColor: '#100010',
+                            border: '2px solid #28007d',
+                            borderRadius: '4px',
+                            padding: '12px',
+                            color: '#ffffff',
+                            fontFamily: 'Consolas, monospace',
+                            boxShadow: '0 4px 8px rgba(0,0,0,0.5)'
+                        }}>
+                            {/* Header: Item Image and Name */}
+                            <div className="text-center mb-3">
+                                <div className="d-flex justify-content-center mb-2" style={{ height: '64px' }}>
+                                    <img
+                                        src={getItemImageUrl(flip.itemTag)}
+                                        alt={flip.itemName}
+                                        width={64}
+                                        height={64}
+                                        style={{ objectFit: 'contain', imageRendering: 'pixelated' }}
+                                    />
+                                </div>
+                                <div style={{ 
+                                    color: '#55FFFF', // Default rarity color (Aqua)
+                                    fontWeight: 'bold', 
+                                    fontSize: '1.1rem',
+                                    textShadow: '2px 2px 0px #000'
+                                }}>
+                                    {flip.itemName}
+                                </div>
+                            </div>
 
-                            <Card.Body>
-                                <div className="d-flex align-items-center mb-3">
-                                    <div className="flex-shrink-0 me-3">
-                                        <img
-                                            src={getItemImageUrl(flip.itemTag)}
-                                            alt={flip.itemName}
-                                            width={64}
-                                            height={64}
-                                            className="rounded"
-                                            style={{ objectFit: 'contain', backgroundColor: '#2a2a2a' }}
-                                        />
-                                    </div>
-                                    <div className="flex-grow-1 min-w-0">
-                                        <h5 className="card-title text-truncate mb-1" title={flip.itemName}>
-                                            {flip.itemName}
-                                        </h5>
-                                        <div className="d-flex align-items-center gap-2 flex-wrap">
-                                            <Badge bg="info" pill>{flip.dataSource}</Badge>
-                                            {flip.valueBreakdown && (
-                                                <Badge bg="warning" text="dark" pill title={flip.valueBreakdown}>
-                                                    <i className="bi bi-gem me-1"></i>
-                                                    Value Added
-                                                </Badge>
-                                            )}
-                                        </div>
+                            {/* BIN Badge */}
+                            <div className="mb-3">
+                                <span style={{ 
+                                    backgroundColor: '#ffaa00', 
+                                    color: '#000', 
+                                    fontWeight: 'bold', 
+                                    padding: '2px 6px', 
+                                    borderRadius: '2px',
+                                    fontSize: '0.8rem',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    BIN
+                                </span>
+                            </div>
+
+                            {/* Stats */}
+                            <div className="flex-grow-1">
+                                <div className="mb-3">
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Cost:</div>
+                                    <div style={{ color: '#ffaa00', fontSize: '1.1rem' }}>{formatCoins(flip.currentPrice)} Coins</div>
+                                </div>
+
+                                <div className="mb-3">
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Target price:</div>
+                                    <div style={{ color: '#ffaa00', fontSize: '1.1rem' }}>{formatCoins(flip.medianPrice)} Coins</div>
+                                </div>
+
+                                <div className="mb-3">
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Estimated Profit:</div>
+                                    <div style={{ color: '#55ff55', fontSize: '1.1rem' }}>
+                                        +{formatCoins(flip.estimatedProfit)} Coins ({flip.profitMarginPercent.toFixed(0)}%)
                                     </div>
                                 </div>
 
-                                {flip.valueBreakdown && (
-                                    <div className="alert alert-secondary py-1 px-2 mb-3 small">
-                                        <i className="bi bi-info-circle me-1"></i>
-                                        {flip.valueBreakdown}
-                                    </div>
-                                )}
-
-                                <div className="p-3 rounded bg-secondary bg-opacity-10 mb-3">
-                                    <div className="d-flex justify-content-between mb-2">
-                                        <span className="text-muted">Buy Price:</span>
-                                        <span className="fw-bold text-light">{formatCoins(flip.currentPrice)}</span>
-                                    </div>
-                                    <div className="d-flex justify-content-between mb-2">
-                                        <span className="text-muted">Median:</span>
-                                        <span className="text-light">{formatCoins(flip.medianPrice)}</span>
-                                    </div>
-                                    <div className="border-top border-secondary my-2 pt-2 d-flex justify-content-between align-items-center">
-                                        <span className="text-success fw-bold">Profit:</span>
-                                        <div className="text-end">
-                                            <div className={`fw-bold text-${getProfitBadgeVariant(flip.estimatedProfit)}`}>
-                                                +{formatCoins(flip.estimatedProfit)}
-                                            </div>
-                                            <small className={`text-${getProfitBadgeVariant(flip.estimatedProfit)}`}>
-                                                {flip.profitMarginPercent.toFixed(1)}% margin
-                                            </small>
-                                        </div>
-                                    </div>
+                                {/* Placeholders */}
+                                <div className="mb-3">
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Lowest BIN:</div>
+                                    <div style={{ color: '#ffaa00' }}>{formatCoins(flip.medianPrice)} Coins</div>
                                 </div>
 
-                                <div className="d-flex gap-2">
-                                    <Link href={`/auction/${flip.auctionUuid}`} className="btn btn-primary flex-grow-1">
-                                        View Auction
-                                    </Link>
-                                    <Button
-                                        variant="outline-light"
-                                        title="Copy /viewauction command"
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(`/viewauction ${flip.auctionUuid}`);
-                                            toast.success('Command copied!');
-                                        }}
-                                    >
-                                        <i className="bi bi-clipboard"></i>
-                                    </Button>
+                                <div className="mb-3">
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Seller:</div>
+                                    <div style={{ color: '#ffffff' }}>---</div>
                                 </div>
-                            </Card.Body>
-                        </Card>
+
+                                <div className="mb-3">
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Volume:</div>
+                                    <div style={{ color: '#ffffff' }}>---</div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="mt-2">
+                                <Link 
+                                    href={`/auction/${flip.auctionUuid}`} 
+                                    className="btn w-100 mb-2"
+                                    style={{
+                                        backgroundColor: '#3f3f3f',
+                                        border: '2px solid #000',
+                                        color: '#ffffff',
+                                        fontWeight: 'bold',
+                                        borderRadius: '0',
+                                        textTransform: 'uppercase',
+                                        boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.1), 0 4px 0 #1a1a1a'
+                                    }}
+                                >
+                                    SNIPE
+                                </Link>
+                                <Button
+                                    variant="link"
+                                    className="w-100 text-decoration-none p-0"
+                                    style={{ color: '#aaaaaa', fontSize: '0.85rem' }}
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(`/viewauction ${flip.auctionUuid}`);
+                                        toast.success('Command copied!');
+                                    }}
+                                >
+                                    [Copy /viewauction]
+                                </Button>
+                            </div>
+                        </div>
                     </Col>
                 ))}
             </Row>

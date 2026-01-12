@@ -131,7 +131,7 @@ public class PropertiesSelectorService
             {
                 properties.Add(new ItemProperty
                 {
-                    Name = "Pet Level",
+                    Name = "Level",
                     Value = $"{level}",
                     Importance = 14,
                     Category = "Pet"
@@ -147,7 +147,7 @@ public class PropertiesSelectorService
                     var calcLevel = CalculatePetLevel(exp.ValueNumeric.Value);
                     properties.Add(new ItemProperty
                     {
-                        Name = "Pet Level",
+                        Name = "Level",
                         Value = $"{calcLevel}",
                         Importance = 14,
                         Category = "Pet"

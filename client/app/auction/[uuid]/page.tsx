@@ -68,33 +68,14 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
             <Link href={`/item/${auctionData.tag}`} className="btn btn-outline-secondary mb-4">&larr; Back to {auctionData.itemName}</Link>
 
             <Row className="gy-4">
-                {/* Left: Item Preview with Lore Card */}
+                {/* Left: Item Preview with Lore Card - Single unified box */}
                 <Col lg={5}>
                     <div className="sticky-top" style={{ top: '20px' }}>
-                        {/* Item Image */}
-                        <Card className="bg-dark border-secondary p-4 shadow-lg mb-4">
-                            <div style={{ position: 'relative', width: '100%', height: '200px' }}>
-                                <Image
-                                    src={imageUrl}
-                                    alt={auctionData.itemName}
-                                    fill
-                                    style={{ objectFit: 'contain', imageRendering: 'pixelated' }}
-                                    className="drop-shadow-lg"
-                                    unoptimized
-                                />
-                            </div>
-                            <h2 className="mt-3 fw-bold text-center" style={{ 
-                                color: rarityColor, 
-                                textShadow: `0 0 15px ${rarityColor}60`,
-                                fontFamily: 'monospace'
-                            }}>
-                                {auctionData.itemName}
-                            </h2>
-                            <div className="text-center text-muted small mb-3">{auctionData.tag}</div>
-                        </Card>
-
-                        {/* Minecraft-style Lore Card */}
-                        <ItemLoreCard auction={auctionData} />
+                        <ItemLoreCard 
+                            auction={auctionData} 
+                            imageUrl={imageUrl}
+                            rarityColor={rarityColor}
+                        />
                     </div>
                 </Col>
 
