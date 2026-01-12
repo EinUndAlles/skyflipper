@@ -77,6 +77,8 @@ export interface ItemProperty {
     value: string;
     importance: number;
     category: string;
+    /** Optional item tag for linkable sub-items (pet skins, held items, ability scrolls) */
+    itemTag?: string;
 }
 
 export interface AuctionWithProperties extends Omit<Auction, 'enchantments' | 'nbtLookups' | 'bids'> {
