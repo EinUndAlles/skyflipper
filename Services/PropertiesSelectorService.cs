@@ -124,8 +124,40 @@ public class PropertiesSelectorService
         // Add pet properties
         if (IsPet(auction.Tag))
         {
-            // Held item
-            var heldItem = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "heldItem");
+            // Pet Level - extract from item name first (e.g., "[Lvl 100] Dragon")
+            // This is the most reliable source as NBT exp requires complex calculation
+            var levelMatch = System.Text.RegularExpressions.Regex.Match(auction.ItemName ?? "", @"\[Lvl (\d+)\]");
+            if (levelMatch.Success && int.TryParse(levelMatch.Groups[1].Value, out var level))
+            {
+                properties.Add(new ItemProperty
+                {
+                    Name = "Pet Level",
+                    Value = $"{level}",
+                    Importance = 14,
+                    Category = "Pet"
+                });
+            }
+            else
+            {
+                // Fallback: try to get from NBT exp (check both "exp" and "pet_exp" keys)
+                var exp = auction.NBTLookups.FirstOrDefault(n => 
+                    n.NBTKey?.KeyName == "exp" || n.NBTKey?.KeyName == "pet_exp");
+                if (exp?.ValueNumeric.HasValue == true)
+                {
+                    var calcLevel = CalculatePetLevel(exp.ValueNumeric.Value);
+                    properties.Add(new ItemProperty
+                    {
+                        Name = "Pet Level",
+                        Value = $"{calcLevel}",
+                        Importance = 14,
+                        Category = "Pet"
+                    });
+                }
+            }
+
+            // Held item (check both "heldItem" and "pet_held_item" keys)
+            var heldItem = auction.NBTLookups.FirstOrDefault(n => 
+                n.NBTKey?.KeyName == "heldItem" || n.NBTKey?.KeyName == "pet_held_item");
             if (heldItem?.ValueString != null)
             {
                 properties.Add(new ItemProperty
@@ -133,20 +165,27 @@ public class PropertiesSelectorService
                     Name = "Held Item",
                     Value = TagToName(heldItem.ValueString),
                     Importance = 12,
-                    Category = "Pet"
+                    Category = "Pet",
+                    ItemTag = heldItem.ValueString // Link to /item/PET_ITEM_*
                 });
             }
 
-            // Skin
-            var skin = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "skin");
+            // Skin (check both "skin" and "pet_skin" keys)
+            var skin = auction.NBTLookups.FirstOrDefault(n => 
+                n.NBTKey?.KeyName == "skin" || n.NBTKey?.KeyName == "pet_skin");
             if (skin?.ValueString != null)
             {
+                // Skin tags are stored without PET_SKIN_ prefix, need to construct full tag
+                var skinTag = skin.ValueString.StartsWith("PET_SKIN_") 
+                    ? skin.ValueString 
+                    : $"PET_SKIN_{skin.ValueString}";
                 properties.Add(new ItemProperty
                 {
                     Name = "Skin",
                     Value = TagToName(skin.ValueString),
                     Importance = 15,
-                    Category = "Pet"
+                    Category = "Pet",
+                    ItemTag = skinTag // Link to /item/PET_SKIN_*
                 });
             }
 
@@ -159,20 +198,6 @@ public class PropertiesSelectorService
                     Name = "Pet Candy Used",
                     Value = $"{(int)candyUsed.ValueNumeric.Value}",
                     Importance = 11,
-                    Category = "Pet"
-                });
-            }
-
-            // Experience (for level calculation)
-            var exp = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "exp");
-            if (exp?.ValueNumeric.HasValue == true)
-            {
-                var level = CalculatePetLevel(exp.ValueNumeric.Value);
-                properties.Add(new ItemProperty
-                {
-                    Name = "Pet Level",
-                    Value = $"{level}",
-                    Importance = 14,
                     Category = "Pet"
                 });
             }
@@ -193,7 +218,8 @@ public class PropertiesSelectorService
                     Name = "Ability Scroll",
                     Value = TagToName(abilityScroll.ValueString),
                     Importance = 10,
-                    Category = "Enhancement"
+                    Category = "Enhancement",
+                    ItemTag = abilityScroll.ValueString // Link to /item/IMPLOSION_SCROLL etc.
                 });
             }
         }
@@ -418,4 +444,9 @@ public class ItemProperty
     public string Value { get; set; } = string.Empty;
     public int Importance { get; set; }
     public string Category { get; set; } = string.Empty; // "Basic", "Enhancement", "Enchantment", "Pet", "Gemstone", "Price"
+    /// <summary>
+    /// Optional item tag for linkable sub-items (e.g., pet skins, held items, ability scrolls).
+    /// When set, the frontend can link to /item/{ItemTag}.
+    /// </summary>
+    public string? ItemTag { get; set; }
 }
