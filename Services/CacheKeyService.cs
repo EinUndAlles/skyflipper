@@ -561,6 +561,15 @@ public class CacheKeyService
                 continue;
             }
 
+            // Gemstone slots - reference lines 748-758
+            // unlocked_slots and gemstone_slots affect item value
+            // These are included in cache key for proper matching
+            if (key == "unlocked_slots" || key == "gemstone_slots")
+            {
+                nbtParts.Add($"[{key}, {value}]");
+                continue;
+            }
+
             // Attribute keys with weighted matching - reference lines 67-83, 708-711
             if (AttributeKeys.Contains(key))
             {

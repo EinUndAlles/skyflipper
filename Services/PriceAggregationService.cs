@@ -19,6 +19,13 @@ public class PriceAggregationService : BackgroundService
     // High-volume items get 15-minute aggregation for faster price updates
     private const int HIGH_VOLUME_THRESHOLD = 10; // Items with 10+ sales per hour qualify
 
+    /// <summary>
+    /// Date when gemstone/unlocked slots were introduced to Skyblock.
+    /// Items with unlocked_slots NBT should only compare to items created after this date.
+    /// Reference: FlippingEngine.cs line 117: private static readonly DateTime UnlockedIntroduction = new DateTime(2021, 9, 4);
+    /// </summary>
+    private static readonly DateTime GemstoneIntroductionDate = new DateTime(2021, 9, 4, 0, 0, 0, DateTimeKind.Utc);
+
     public PriceAggregationService(
         IServiceScopeFactory scopeFactory,
         ILogger<PriceAggregationService> logger,
@@ -111,8 +118,9 @@ public class PriceAggregationService : BackgroundService
             return;
         }
 
-        // Apply anti-manipulation
+        // Apply anti-manipulation and gemstone date filter
         var soldAuctions = ApplyAntiMarketManipulation(allAuctions);
+        soldAuctions = ApplyUnlockedSlotsDateFilter(soldAuctions);
 
         // Group by cache key
         var aggregatesData = new List<(string CacheKey, List<double> Prices, int BinCount)>();
@@ -204,6 +212,9 @@ public class PriceAggregationService : BackgroundService
         // 3. Dedupe by item UID (same item sold multiple times)
         // Reference: FlippingEngine.cs ApplyAntiMarketManipulation() lines 550-586
         var soldAuctions = ApplyAntiMarketManipulation(allAuctions);
+        
+        // Apply unlocked slots date filter - reference FlippingEngine.cs lines 748-757
+        soldAuctions = ApplyUnlockedSlotsDateFilter(soldAuctions);
 
         if (soldAuctions.Count == 0)
         {
@@ -549,5 +560,58 @@ public class PriceAggregationService : BackgroundService
                 return !tradePairs.Contains(pair);
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// Checks if an auction has gemstone/unlocked_slots NBT that requires date filtering.
+    /// Reference: FlippingEngine.cs lines 748-757
+    /// 
+    /// Items with unlocked_slots should only compare to items created after the gemstone
+    /// introduction date (2021-09-04) to avoid comparing to older items without this feature.
+    /// </summary>
+    private static bool HasUnlockedSlotsNbt(Auction auction)
+    {
+        // Check FlatenedNBTJson first
+        if (!string.IsNullOrEmpty(auction.FlatenedNBTJson))
+        {
+            try
+            {
+                var flatNbt = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(auction.FlatenedNBTJson);
+                if (flatNbt != null && flatNbt.ContainsKey("unlocked_slots"))
+                    return true;
+            }
+            catch { }
+        }
+
+        // Fallback to NBTLookups
+        return auction.NBTLookups?.Any(n => 
+            n.NBTKey?.KeyName?.Equals("unlocked_slots", StringComparison.OrdinalIgnoreCase) == true) == true;
+    }
+
+    /// <summary>
+    /// Filters auctions based on gemstone introduction date.
+    /// 
+    /// Reference: FlippingEngine.cs lines 748-757:
+    /// if (canHaveGemstones || flatNbt.ContainsKey("unlocked_slots"))
+    /// {
+    ///     select = select.Where(a => a.ItemCreatedAt > UnlockedIntroduction);
+    /// }
+    /// 
+    /// This ensures that items with unlocked gemstone slots are only compared to
+    /// other items created after gemstones were introduced to the game.
+    /// </summary>
+    private static List<Auction> ApplyUnlockedSlotsDateFilter(List<Auction> auctions)
+    {
+        return auctions.Where(a =>
+        {
+            // If this auction has unlocked_slots NBT, it should only be included
+            // if the item was created after the gemstone introduction date
+            if (HasUnlockedSlotsNbt(a))
+            {
+                return a.ItemCreatedAt > GemstoneIntroductionDate;
+            }
+            // Auctions without unlocked_slots are always included
+            return true;
+        }).ToList();
     }
 }
