@@ -377,6 +377,201 @@ public class ReferenceParityTests
         Assert.That(wrongDye.FlatNbtMatches, Is.False);
     }
 
+    [Test]
+    public void EvaluateCandidateMatch_RequiresDrillPartParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "DIVAN_DRILL",
+            ItemName = "Divan's Drill",
+            Tier = Tier.MYTHIC,
+            Category = Category.MISC,
+            StartingBid = 900_000_000,
+            FlatenedNBTJson = """{"drill_part_engine":"ENGINE_X655","drill_part_fuel_tank":"TANK_5","drill_part_upgrade_module":"MODULE_GOBLIN"}"""
+        };
+
+        var matchingCandidate = new Auction
+        {
+            Tag = "DIVAN_DRILL",
+            ItemName = "Divan's Drill",
+            Tier = Tier.MYTHIC,
+            Category = Category.MISC,
+            StartingBid = 905_000_000,
+            FlatenedNBTJson = """{"drill_part_engine":"ENGINE_X655","drill_part_fuel_tank":"TANK_5","drill_part_upgrade_module":"MODULE_GOBLIN"}"""
+        };
+
+        var wrongPartCandidate = new Auction
+        {
+            Tag = "DIVAN_DRILL",
+            ItemName = "Divan's Drill",
+            Tier = Tier.MYTHIC,
+            Category = Category.MISC,
+            StartingBid = 905_000_000,
+            FlatenedNBTJson = """{"drill_part_engine":"ENGINE_X655","drill_part_fuel_tank":"TANK_5","drill_part_upgrade_module":"MODULE_AMBER"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["drill_part_engine"] = "ENGINE_X655",
+            ["drill_part_fuel_tank"] = "TANK_5",
+            ["drill_part_upgrade_module"] = "MODULE_GOBLIN"
+        };
+
+        var matching = referenceService.EvaluateCandidateMatch(matchingCandidate, target, "Divan's Drill", targetFlatNbt, null, new List<Enchantment>(), false);
+        var wrongPart = referenceService.EvaluateCandidateMatch(wrongPartCandidate, target, "Divan's Drill", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(matching.IsMatch, Is.True,
+            $"tier={matching.TierMatches}, reforge={matching.ReforgeMatches}, stack={matching.StackMatches}, name={matching.NameMatches}, nbt={matching.FlatNbtMatches}, enchants={matching.EnchantmentsMatch}");
+        Assert.That(wrongPart.IsMatch, Is.False);
+        Assert.That(wrongPart.FlatNbtMatches, Is.False);
+    }
+
+    [Test]
+    public void EvaluateCandidateMatch_RequiresAbilityScrollParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "WITHER_BLADE",
+            ItemName = "Hyperion",
+            Tier = Tier.MYTHIC,
+            Category = Category.WEAPON,
+            StartingBid = 1_500_000_000,
+            FlatenedNBTJson = """{"ability_scroll":"IMPLOSION SHADOW_WARP WITHER_SHIELD"}"""
+        };
+
+        var matchingCandidate = new Auction
+        {
+            Tag = "WITHER_BLADE",
+            ItemName = "Hyperion",
+            Tier = Tier.MYTHIC,
+            Category = Category.WEAPON,
+            StartingBid = 1_520_000_000,
+            FlatenedNBTJson = """{"ability_scroll":"IMPLOSION SHADOW_WARP WITHER_SHIELD"}"""
+        };
+
+        var wrongScrollCandidate = new Auction
+        {
+            Tag = "WITHER_BLADE",
+            ItemName = "Hyperion",
+            Tier = Tier.MYTHIC,
+            Category = Category.WEAPON,
+            StartingBid = 1_520_000_000,
+            FlatenedNBTJson = """{"ability_scroll":"IMPLOSION WITHER_SHIELD"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["ability_scroll"] = "IMPLOSION SHADOW_WARP WITHER_SHIELD"
+        };
+
+        var matching = referenceService.EvaluateCandidateMatch(matchingCandidate, target, "Hyperion", targetFlatNbt, null, new List<Enchantment>(), false);
+        var wrongScroll = referenceService.EvaluateCandidateMatch(wrongScrollCandidate, target, "Hyperion", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(matching.IsMatch, Is.True,
+            $"tier={matching.TierMatches}, reforge={matching.ReforgeMatches}, stack={matching.StackMatches}, name={matching.NameMatches}, nbt={matching.FlatNbtMatches}, enchants={matching.EnchantmentsMatch}");
+        Assert.That(wrongScroll.IsMatch, Is.False);
+        Assert.That(wrongScroll.FlatNbtMatches, Is.False);
+    }
+
+    [Test]
+    public void EvaluateCandidateMatch_RequiresAttributeGearParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "CRIMSON_HELMET",
+            ItemName = "Crimson Helmet",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 120_000_000,
+            FlatenedNBTJson = """{"mana_pool":"7","dominance":"5"}"""
+        };
+
+        var matchingCandidate = new Auction
+        {
+            Tag = "CRIMSON_HELMET",
+            ItemName = "Crimson Helmet",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 121_000_000,
+            FlatenedNBTJson = """{"mana_pool":"6","dominance":"5"}"""
+        };
+
+        var missingAttributeCandidate = new Auction
+        {
+            Tag = "CRIMSON_HELMET",
+            ItemName = "Crimson Helmet",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 121_000_000,
+            FlatenedNBTJson = """{"mana_pool":"6"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["mana_pool"] = "7",
+            ["dominance"] = "5"
+        };
+
+        var matching = referenceService.EvaluateCandidateMatch(matchingCandidate, target, "Crimson Helmet", targetFlatNbt, null, new List<Enchantment>(), false);
+        var missingAttribute = referenceService.EvaluateCandidateMatch(missingAttributeCandidate, target, "Crimson Helmet", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(matching.IsMatch, Is.True,
+            $"tier={matching.TierMatches}, reforge={matching.ReforgeMatches}, stack={matching.StackMatches}, name={matching.NameMatches}, nbt={matching.FlatNbtMatches}, enchants={matching.EnchantmentsMatch}");
+        Assert.That(missingAttribute.IsMatch, Is.False);
+        Assert.That(missingAttribute.FlatNbtMatches, Is.False);
+    }
+
+    [Test]
+    public void EvaluateCandidateMatch_RequiresCakeSoulCapturedPlayerParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "CAKE_SOUL",
+            ItemName = "Cake Soul",
+            Tier = Tier.EPIC,
+            Category = Category.MISC,
+            StartingBid = 5_000_000,
+            FlatenedNBTJson = """{"captured_player":"Technoblade"}"""
+        };
+
+        var matchingCandidate = new Auction
+        {
+            Tag = "CAKE_SOUL",
+            ItemName = "Cake Soul",
+            Tier = Tier.EPIC,
+            Category = Category.MISC,
+            StartingBid = 5_200_000,
+            FlatenedNBTJson = """{"captured_player":"Technoblade"}"""
+        };
+
+        var wrongPlayerCandidate = new Auction
+        {
+            Tag = "CAKE_SOUL",
+            ItemName = "Cake Soul",
+            Tier = Tier.EPIC,
+            Category = Category.MISC,
+            StartingBid = 5_200_000,
+            FlatenedNBTJson = """{"captured_player":"Minikloon"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["captured_player"] = "Technoblade"
+        };
+
+        var matching = referenceService.EvaluateCandidateMatch(matchingCandidate, target, "Cake Soul", targetFlatNbt, null, new List<Enchantment>(), false);
+        var wrongPlayer = referenceService.EvaluateCandidateMatch(wrongPlayerCandidate, target, "Cake Soul", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(matching.IsMatch, Is.True,
+            $"tier={matching.TierMatches}, reforge={matching.ReforgeMatches}, stack={matching.StackMatches}, name={matching.NameMatches}, nbt={matching.FlatNbtMatches}, enchants={matching.EnchantmentsMatch}");
+        Assert.That(wrongPlayer.IsMatch, Is.False);
+        Assert.That(wrongPlayer.FlatNbtMatches, Is.False);
+    }
+
     private static Auction BuildParityAuction(string uuid, string itemName, string sellerId, string itemUid, string bidderId)
     {
         var referenceEnd = DateTime.UtcNow.AddMinutes(-20);
