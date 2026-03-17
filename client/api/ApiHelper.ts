@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Auction, AuctionWithProperties, Stats, TagCount } from '../types';
 import { ItemPrice, DateRange, ItemFilter, PriceHistoryResponse } from '../types/priceHistory';
+import { FlipNotification } from '../types/flip';
 
 const API_BASE_URL = 'http://localhost:5135/api';
 
@@ -108,6 +109,13 @@ export const api = {
         return response.data;
     },
 
+    getFlips: async (minProfit: number = 10, maxResults: number = 50): Promise<FlipNotification[]> => {
+        const response = await axios.get<FlipNotification[]>(`${API_BASE_URL}/flips`, {
+            params: { minProfit, maxResults }
+        });
+        return response.data;
+    },
+
     // Price history endpoints - uses our local backend
     getItemPrices: async (
         itemTag: string,
@@ -125,9 +133,15 @@ export const api = {
             `${API_BASE_URL}/auctions/item/price/${itemTag}/history/${fetchSpan}`,
             { params }
         );
-        
+
+        const rawPrices = Array.isArray((response.data as any)?.prices)
+            ? (response.data as any).prices
+            : Array.isArray(response.data)
+                ? response.data
+                : [];
+
         // Convert time strings to Date objects
-        return response.data.prices.map(item => ({
+        return rawPrices.map((item: any) => ({
             ...item,
             time: new Date(item.time)
         }));

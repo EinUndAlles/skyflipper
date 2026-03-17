@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Container, Row, Col, Card, Badge, Button, Spinner, Alert } from 'react-bootstrap';
 import { HubConnectionBuilder, HubConnection, LogLevel } from '@microsoft/signalr';
 import { FlipNotification } from '@/types/flip';
-import { getItemImageUrl } from '@/api/ApiHelper';
+import { api, getItemImageUrl } from '@/api/ApiHelper';
 import { toast } from '@/components/ToastProvider';
 import Link from 'next/link';
 
@@ -80,6 +80,9 @@ export default function FlipsPage() {
             setConnectionState('Connecting');
 
             try {
+                const initialFlips = await api.getFlips();
+                handleFlipsUpdated(initialFlips);
+
                 const connection = new HubConnectionBuilder()
                     .withUrl('http://localhost:5135/hubs/flips')
                     .withAutomaticReconnect()
