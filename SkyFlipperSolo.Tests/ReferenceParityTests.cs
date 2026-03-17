@@ -572,6 +572,73 @@ public class ReferenceParityTests
         Assert.That(wrongPlayer.FlatNbtMatches, Is.False);
     }
 
+    [Test]
+    public void ApplyAntiMarketManipulation_DedupesBySellerToLowestPrice()
+    {
+        var auctions = new List<Auction>
+        {
+            BuildManipAuction("a1", "seller-a", "buyer-a", 5_000_000, "uid-a"),
+            BuildManipAuction("a2", "seller-a", "buyer-b", 4_000_000, "uid-b"),
+            BuildManipAuction("a3", "seller-c", "buyer-c", 6_000_000, "uid-c")
+        };
+
+        var result = ReferenceAuctionService.ApplyAntiMarketManipulation(auctions);
+
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("a2"));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Not.Contain("a1"));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("a3"));
+    }
+
+    [Test]
+    public void ApplyAntiMarketManipulation_DedupesByBuyer()
+    {
+        var auctions = new List<Auction>
+        {
+            BuildManipAuction("b1", "seller-a", "buyer-a", 5_000_000, "uid-a"),
+            BuildManipAuction("b2", "seller-b", "buyer-a", 4_000_000, "uid-b"),
+            BuildManipAuction("b3", "seller-c", "buyer-c", 6_000_000, "uid-c")
+        };
+
+        var result = ReferenceAuctionService.ApplyAntiMarketManipulation(auctions);
+
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("b1"));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Not.Contain("b2"));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("b3"));
+    }
+
+    [Test]
+    public void ApplyAntiMarketManipulation_DedupesByUid()
+    {
+        var auctions = new List<Auction>
+        {
+            BuildManipAuction("c1", "seller-a", "buyer-a", 5_000_000, "same-uid"),
+            BuildManipAuction("c2", "seller-b", "buyer-b", 4_000_000, "same-uid"),
+            BuildManipAuction("c3", "seller-c", "buyer-c", 6_000_000, "other-uid")
+        };
+
+        var result = ReferenceAuctionService.ApplyAntiMarketManipulation(auctions);
+
+        Assert.That(result.Count(a => a.ItemUid == "same-uid"), Is.EqualTo(1));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("c3"));
+    }
+
+    [Test]
+    public void ApplyAntiMarketManipulation_RemovesBackAndForthTradingWithoutUid()
+    {
+        var auctions = new List<Auction>
+        {
+            BuildManipAuction("d1", "seller-a", "buyer-a", 5_000_000, null),
+            BuildManipAuction("d2", "buyer-a", "seller-a", 4_000_000, null),
+            BuildManipAuction("d3", "seller-c", "buyer-c", 6_000_000, "uid-c")
+        };
+
+        var result = ReferenceAuctionService.ApplyAntiMarketManipulation(auctions);
+
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Not.Contain("d1"));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Not.Contain("d2"));
+        Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("d3"));
+    }
+
     private static Auction BuildParityAuction(string uuid, string itemName, string sellerId, string itemUid, string bidderId)
     {
         var referenceEnd = DateTime.UtcNow.AddMinutes(-20);
@@ -603,6 +670,32 @@ public class ReferenceParityTests
         auction.Enchantments.Add(CreateEnchant(EnchantmentType.rejuvenate, 5));
         auction.Enchantments.Add(CreateEnchant(EnchantmentType.protection, 6));
         auction.Enchantments.Add(CreateEnchant(EnchantmentType.growth, 5));
+        return auction;
+    }
+
+    private static Auction BuildManipAuction(string uuid, string sellerId, string buyerId, long highestBidAmount, string? itemUid)
+    {
+        var auction = new Auction
+        {
+            Uuid = uuid,
+            Tag = "HYPERION",
+            ItemName = "Hyperion",
+            Tier = Tier.MYTHIC,
+            Category = Category.WEAPON,
+            Count = 1,
+            HighestBidAmount = highestBidAmount,
+            StartingBid = highestBidAmount,
+            AuctioneerId = sellerId,
+            ItemUid = itemUid,
+            End = DateTime.UtcNow.AddMinutes(-10),
+            FlatenedNBTJson = itemUid == null ? "{}" : $$"""{"uid":"{{itemUid}}"}"""
+        };
+        auction.Bids.Add(new BidRecord
+        {
+            BidderId = buyerId,
+            Amount = highestBidAmount,
+            Timestamp = DateTime.UtcNow.AddMinutes(-11)
+        });
         return auction;
     }
 

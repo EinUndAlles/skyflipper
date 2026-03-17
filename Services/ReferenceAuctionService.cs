@@ -648,7 +648,7 @@ public class ReferenceAuctionService
         return Math.Min(fullTime, shortTerm);
     }
 
-    private static List<Auction> ApplyAntiMarketManipulation(List<Auction> relevantAuctions)
+    public static List<Auction> ApplyAntiMarketManipulation(List<Auction> relevantAuctions)
     {
         var counter = 1;
         if (relevantAuctions.Count > 1)
