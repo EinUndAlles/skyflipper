@@ -861,20 +861,15 @@ public class AuctionsController : ControllerBase
 
         if (lowestBins.Count == 0)
         {
-            return Ok(new 
-            {
-                lowest = (long?)null,
-                secondLowest = (long?)null,
-                uuid = (string?)null
-            });
+            return Ok(new LowestBinResponse());
         }
 
-        return Ok(new 
+        return Ok(new LowestBinResponse
         {
-            lowest = lowestBins[0].StartingBid,
-            secondLowest = lowestBins.Count > 1 ? lowestBins[1].StartingBid : (long?)null,
-            uuid = lowestBins[0].Uuid,
-            itemName = lowestBins[0].ItemName
+            Lowest = lowestBins[0].StartingBid,
+            SecondLowest = lowestBins.Count > 1 ? lowestBins[1].StartingBid : null,
+            Uuid = lowestBins[0].Uuid,
+            ItemName = lowestBins[0].ItemName
         });
     }
 
@@ -1298,4 +1293,12 @@ public class AuctionPreviewResponse
     public string? Texture { get; set; }
     public double? TimeRemaining { get; set; }
     public DateTime? SoldAt { get; set; }
+}
+
+public class LowestBinResponse
+{
+    public long? Lowest { get; set; }
+    public long? SecondLowest { get; set; }
+    public string? Uuid { get; set; }
+    public string? ItemName { get; set; }
 }

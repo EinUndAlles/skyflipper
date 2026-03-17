@@ -147,6 +147,14 @@ public class FlipOpportunityDto
     public string Tier { get; set; } = string.Empty;
     public string? Texture { get; set; }
     public string ValueBreakdown { get; set; } = string.Empty;
+
+    // Compatibility aliases for consumers that prefer shorter/cofl-like field names.
+    public string Uuid => AuctionUuid;
+    public long Price => CurrentPrice;
+    public long TargetPrice => MedianPrice;
+    public long Profit => EstimatedProfit;
+    public double ProfitPercent => ProfitMarginPercent;
+    public DateTime End => AuctionEnd;
 }
 
 public class FlipStats
