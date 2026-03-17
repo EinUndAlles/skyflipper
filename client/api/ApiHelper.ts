@@ -134,17 +134,20 @@ export const api = {
             { params }
         );
 
-        const rawPrices = Array.isArray((response.data as any)?.prices)
-            ? (response.data as any).prices
-            : Array.isArray(response.data)
-                ? response.data
+        const payload: any = response?.data;
+        const rawPrices = Array.isArray(payload?.prices)
+            ? payload.prices
+            : Array.isArray(payload)
+                ? payload
                 : [];
 
         // Convert time strings to Date objects
-        return rawPrices.map((item: any) => ({
+        return rawPrices
+            .filter((item: any) => item && item.time)
+            .map((item: any) => ({
             ...item,
             time: new Date(item.time)
-        }));
+            }));
     },
 
     // Get price summary for an item

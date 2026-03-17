@@ -10,15 +10,21 @@ import Link from 'next/link';
 
 export default function FlipsPage() {
     const [flips, setFlips] = useState<FlipNotification[]>([]);
+    const [mounted, setMounted] = useState(false);
     const [connectionState, setConnectionState] = useState<string>('Disconnected');
-    const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
-        if (typeof window !== 'undefined' && 'Notification' in window) {
-            return Notification.permission;
-        }
-        return 'default';
-    });
+    const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
     const connectionRef = useRef<HubConnection | null>(null);
     const isUnmountingRef = useRef(false); // Track intentional unmount
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            setNotificationPermission(Notification.permission);
+        }
+    }, []);
 
     const requestNotificationPermission = async () => {
         if (!('Notification' in window)) {
@@ -189,6 +195,24 @@ export default function FlipsPage() {
         const date = new Date(dateStr);
         return date.toLocaleTimeString();
     };
+
+    if (!mounted) {
+        return (
+            <Container fluid className="py-4">
+                <div className="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 className="display-5 fw-bold mb-0">Live Flips</h1>
+                        <p className="text-muted mb-0">Real-time auction flipping opportunities</p>
+                    </div>
+                    <div style={{ width: '120px', height: '38px' }} />
+                </div>
+                <Alert variant="info" className="text-center py-5 bg-dark border-secondary text-light">
+                    <Spinner animation="grow" variant="info" className="mb-3" />
+                    <h4>Loading live flips...</h4>
+                </Alert>
+            </Container>
+        );
+    }
 
     return (
         <Container fluid className="py-4">

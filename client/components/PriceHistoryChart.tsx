@@ -113,7 +113,7 @@ export default function PriceHistoryChart({
                 setLoading(true);
                 setError(null);
                 const data = await api.getItemPrices(itemTag, dateRange, itemFilter);
-                setPriceData(data);
+                setPriceData(Array.isArray(data) ? data : []);
             } catch (err: any) {
                 console.error('Failed to load price history:', err);
                 if (err.response?.status === 404) {
