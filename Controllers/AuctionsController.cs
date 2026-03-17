@@ -318,7 +318,7 @@ public class AuctionsController : ControllerBase
     /// Get filter options for a specific item tag
     /// </summary>
     [HttpGet("filters/{tag}")]
-    public async Task<IActionResult> GetFiltersByTag(string tag)
+    public IActionResult GetFiltersByTag(string tag)
     {
         var upperTag = tag.ToUpper();
 

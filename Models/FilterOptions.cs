@@ -8,7 +8,7 @@ public class FilterOptions
     /// <summary>
     /// Filter name (e.g., "Stars", "Enchantment")
     /// </summary>
-    public string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
 
     /// <summary>
     /// Filter type (ENUM, NUMERICAL, RANGE, etc.)
@@ -18,7 +18,7 @@ public class FilterOptions
     /// <summary>
     /// Available options/values for this filter
     /// </summary>
-    public string[] Options { get; set; }
+    public string[] Options { get; set; } = Array.Empty<string>();
 
     /// <summary>
     /// Optional description shown as tooltip/help text

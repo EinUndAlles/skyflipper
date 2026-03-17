@@ -380,9 +380,12 @@ public class NbtParserService
         {
             if (Enum.TryParse<EnchantmentType>(name, true, out var enchType))
             {
-                // Get value using Get<NbtInt> like reference (line 1083)
-                var level = (byte)enchCompound.Get<fNbt.NbtInt>(name).IntValue;
-                enchantments.Add(new Enchantment(enchType, level));
+                // Keep the reference behavior, but tolerate malformed values instead of throwing.
+                if (enchCompound.TryGet(name, out NbtTag? levelTag) && levelTag is fNbt.NbtInt levelInt)
+                {
+                    var level = (byte)levelInt.IntValue;
+                    enchantments.Add(new Enchantment(enchType, level));
+                }
             }
         }
 
@@ -470,7 +473,7 @@ public class NbtParserService
 
         foreach (var key in keysToExtract)
         {
-            if (extraTag.TryGet(key, out NbtTag? tag))
+            if (extraTag.TryGet(key, out NbtTag? tag) && tag != null)
             {
                 flat[key] = GetTagValue(tag);
             }
@@ -490,11 +493,11 @@ public class NbtParserService
             var compactorKey = $"personal_compactor_{i}";
             var deletorKey = $"personal_deletor_{i}";
             
-            if (extraTag.TryGet(compactKey, out NbtTag? compactTag))
+            if (extraTag.TryGet(compactKey, out NbtTag? compactTag) && compactTag != null)
                 flat[compactKey] = GetTagValue(compactTag);
-            if (extraTag.TryGet(compactorKey, out NbtTag? compactorTag))
+            if (extraTag.TryGet(compactorKey, out NbtTag? compactorTag) && compactorTag != null)
                 flat[compactorKey] = GetTagValue(compactorTag);
-            if (i <= 9 && extraTag.TryGet(deletorKey, out NbtTag? deletorTag))
+            if (i <= 9 && extraTag.TryGet(deletorKey, out NbtTag? deletorTag) && deletorTag != null)
                 flat[deletorKey] = GetTagValue(deletorTag);
         }
 
@@ -510,6 +513,9 @@ public class NbtParserService
         {
             foreach (var gem in gems)
             {
+                if (string.IsNullOrEmpty(gem.Name))
+                    continue;
+
                 if (gem is NbtString gemStr)
                 {
                     // Simple gem slot: COMBAT_0 = "PERFECT"
@@ -519,9 +525,9 @@ public class NbtParserService
                 {
                     // Complex gem slot with quality and uuid
                     // Reference: lines 566-580
-                    if (gemCompound.TryGet("quality", out NbtTag? qualityTag))
+                    if (gemCompound.TryGet("quality", out NbtTag? qualityTag) && qualityTag != null)
                         flat[gem.Name] = GetTagValue(qualityTag);
-                    if (gemCompound.TryGet("uuid", out NbtTag? uuidTag))
+                    if (gemCompound.TryGet("uuid", out NbtTag? uuidTag) && uuidTag != null)
                         flat[$"{gem.Name}.uuid"] = GetTagValue(uuidTag);
                 }
                 else
@@ -537,7 +543,8 @@ public class NbtParserService
         {
             foreach (var attr in attrs)
             {
-                flat[attr.Name] = GetTagValue(attr);
+                if (!string.IsNullOrEmpty(attr.Name))
+                    flat[attr.Name] = GetTagValue(attr);
             }
         }
 
@@ -548,7 +555,8 @@ public class NbtParserService
         {
             foreach (var rune in runes)
             {
-                flat[$"RUNE_{rune.Name}"] = GetTagValue(rune);
+                if (!string.IsNullOrEmpty(rune.Name))
+                    flat[$"RUNE_{rune.Name}"] = GetTagValue(rune);
             }
         }
 
@@ -588,7 +596,8 @@ public class NbtParserService
                 {
                     foreach (var kv in effectCompound)
                     {
-                        flat[kv.Name] = GetTagValue(kv);
+                        if (!string.IsNullOrEmpty(kv.Name))
+                            flat[kv.Name] = GetTagValue(kv);
                     }
                 }
             }
@@ -650,9 +659,9 @@ public class NbtParserService
 
         if (partTag is NbtCompound partCompound)
         {
-            if (partCompound.TryGet("uuid", out NbtTag? uuidTag))
+            if (partCompound.TryGet("uuid", out NbtTag? uuidTag) && uuidTag != null)
                 flat[$"{partName}.uuid"] = GetTagValue(uuidTag);
-            if (partCompound.TryGet("part", out NbtTag? partTypeTag))
+            if (partCompound.TryGet("part", out NbtTag? partTypeTag) && partTypeTag != null)
                 flat[$"{partName}.part"] = GetTagValue(partTypeTag);
         }
         else if (partTag is NbtString partStr)

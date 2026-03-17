@@ -385,7 +385,9 @@ public class PropertiesSelectorService
 
         foreach (var gem in gemLookups)
         {
-            var gemName = gem.NBTKey.KeyName;
+            if (gem.NBTKey?.KeyName is not string gemName || string.IsNullOrEmpty(gem.ValueString))
+                continue;
+
             var gemType = gem.ValueString;
 
             // Extract quality from key name
