@@ -164,6 +164,109 @@ public class ReferenceParityTests
         Assert.That(result.References.Select(a => a.Uuid).ToList(), Does.Not.Contain("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     }
 
+    [Test]
+    public void EvaluateCandidateMatch_RequiresValuablePetItemToMatchExactly()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "PET_DRAGON",
+            ItemName = "[Lvl 100] Dragon",
+            Tier = Tier.LEGENDARY,
+            Category = Category.MISC,
+            StartingBid = 50_000_000,
+            FlatenedNBTJson = """{"heldItem":"PET_ITEM_TIER_BOOST","exp":"25000000","candyUsed":"0"}"""
+        };
+
+        var matchingCandidate = new Auction
+        {
+            Tag = "PET_DRAGON",
+            ItemName = "[Lvl 103] Dragon",
+            Tier = Tier.LEGENDARY,
+            Category = Category.MISC,
+            StartingBid = 50_000_000,
+            FlatenedNBTJson = """{"heldItem":"PET_ITEM_TIER_BOOST","exp":"25000000","candyUsed":"0"}"""
+        };
+
+        var wrongPetItemCandidate = new Auction
+        {
+            Tag = "PET_DRAGON",
+            ItemName = "[Lvl 103] Dragon",
+            Tier = Tier.LEGENDARY,
+            Category = Category.MISC,
+            StartingBid = 50_000_000,
+            FlatenedNBTJson = """{"heldItem":"PET_ITEM_EXP_SHARE","exp":"25000000","candyUsed":"0"}"""
+        };
+
+        var relevantEnchants = CacheKeyService.ExtractRelevantEnchants(target.Enchantments);
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["heldItem"] = "PET_ITEM_TIER_BOOST",
+            ["exp"] = "25000000",
+            ["candyUsed"] = "0"
+        };
+
+        var matching = referenceService.EvaluateCandidateMatch(matchingCandidate, target, "[Lvl 100] Dragon", targetFlatNbt, null, relevantEnchants, false);
+        var wrong = referenceService.EvaluateCandidateMatch(wrongPetItemCandidate, target, "[Lvl 100] Dragon", targetFlatNbt, null, relevantEnchants, false);
+
+        Assert.That(matching.IsMatch, Is.True,
+            $"tier={matching.TierMatches}, reforge={matching.ReforgeMatches}, stack={matching.StackMatches}, name={matching.NameMatches}, nbt={matching.FlatNbtMatches}, enchants={matching.EnchantmentsMatch}");
+        Assert.That(wrong.IsMatch, Is.False);
+        Assert.That(wrong.FlatNbtMatches, Is.False);
+    }
+
+    [Test]
+    public void EvaluateCandidateMatch_AllowsMidasRangeParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "MIDAS_SWORD",
+            ItemName = "Gilded Midas Sword",
+            Tier = Tier.LEGENDARY,
+            Category = Category.WEAPON,
+            Reforge = Reforge.Gilded,
+            StartingBid = 120_000_000,
+            FlatenedNBTJson = """{"winning_bid":"100000000","additional_coins":"100000000"}"""
+        };
+
+        var inRangeCandidate = new Auction
+        {
+            Tag = "MIDAS_SWORD",
+            ItemName = "Gilded Midas Sword",
+            Tier = Tier.LEGENDARY,
+            Category = Category.WEAPON,
+            Reforge = Reforge.Gilded,
+            StartingBid = 121_000_000,
+            FlatenedNBTJson = """{"winning_bid":"101000000","additional_coins":"101000000"}"""
+        };
+
+        var outOfRangeCandidate = new Auction
+        {
+            Tag = "MIDAS_SWORD",
+            ItemName = "Gilded Midas Sword",
+            Tier = Tier.LEGENDARY,
+            Category = Category.WEAPON,
+            Reforge = Reforge.Gilded,
+            StartingBid = 150_000_000,
+            FlatenedNBTJson = """{"winning_bid":"110000000","additional_coins":"110000000"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["winning_bid"] = "100000000",
+            ["additional_coins"] = "100000000"
+        };
+
+        var inRange = referenceService.EvaluateCandidateMatch(inRangeCandidate, target, "Midas Sword", targetFlatNbt, null, new List<Enchantment>(), false);
+        var outOfRange = referenceService.EvaluateCandidateMatch(outOfRangeCandidate, target, "Midas Sword", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(inRange.IsMatch, Is.True,
+            $"tier={inRange.TierMatches}, reforge={inRange.ReforgeMatches}, stack={inRange.StackMatches}, name={inRange.NameMatches}, nbt={inRange.FlatNbtMatches}, enchants={inRange.EnchantmentsMatch}");
+        Assert.That(outOfRange.IsMatch, Is.False);
+        Assert.That(outOfRange.FlatNbtMatches, Is.False);
+    }
+
     private static Auction BuildParityAuction(string uuid, string itemName, string sellerId, string itemUid, string bidderId)
     {
         var referenceEnd = DateTime.UtcNow.AddMinutes(-20);
