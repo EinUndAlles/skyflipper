@@ -562,63 +562,20 @@ public class AuctionsController : ControllerBase
                         p.Timestamp >= cutoff)
             .ToListAsync();
 
-        // Group by timestamp to present a single price point per time bucket
         var priceData = priceEntries
             .GroupBy(p => p.Timestamp)
             .OrderBy(g => g.Key)
-            .Select(g => new 
+            .Select(g => new PriceHistoryPoint
             {
-                time = g.Key,
-                min = g.Min(x => x.Min),
-                max = g.Max(x => x.Max),
-                avg = g.Average(x => x.Avg),
-                volume = g.Sum(x => x.Volume)
+                Time = g.Key,
+                Min = g.Min(x => x.Min),
+                Max = g.Max(x => x.Max),
+                Avg = g.Average(x => x.Avg),
+                Volume = g.Sum(x => x.Volume)
             })
             .ToList();
 
-        // Compute median across the per-bucket medians if available
-        var medians = priceEntries.Select(p => p.Median).ToList();
-        var avgMedian = medians.Count > 0 ? CalculateMedian(medians) : 0.0;
-        // First/last point for trend calculation (using per-bucket medians if available)
-        var firstPrice = priceEntries.FirstOrDefault()?.Median ?? priceData.FirstOrDefault()?.avg ?? 0;
-        var lastPrice = priceEntries.LastOrDefault()?.Median ?? priceData.LastOrDefault()?.avg ?? 0;
-        var priceChange = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
-
-        if (priceData.Count == 0)
-        {
-            return Ok(new 
-            {
-                ItemTag = upperTag,
-                Granularity = granularity,
-                Data = new List<object>(),
-                Summary = (object?)null
-            });
-        }
-        // Calculate summary statistics
-        var totalVolume = priceData.Sum(p => p.volume);
-        var firstPoint = priceData.First();
-        var lastPoint = priceData.Last();
-        var firstPrice2 = firstPoint.min; // use the min as a rough baseline for initial point
-        var lastPrice2 = lastPoint.max;   // use the max as a rough baseline for final point
-        var priceDelta = firstPrice2 > 0 ? ((lastPrice2 - firstPrice2) / firstPrice2) * 100 : 0;
-        string computedTrend = "stable";
-        if (priceDelta > 5) computedTrend = "increasing"; else if (priceDelta < -5) computedTrend = "decreasing";
-
-        return Ok(new 
-        {
-            ItemTag = upperTag,
-            Granularity = granularity,
-            Data = priceData,
-            Summary = new 
-            {
-                TotalVolume = totalVolume,
-                AvgMedian = avgMedian,
-                PriceChange = Math.Round(priceDelta, 2),
-                Trend = computedTrend,
-                LowestMin = priceData.Min(p => p.min),
-                HighestMax = priceData.Max(p => p.max)
-            }
-        });
+        return Ok(CreatePriceHistoryResponse(priceData));
     }
 
     /// <summary>
@@ -660,17 +617,17 @@ public class AuctionsController : ControllerBase
         var priceData = await _context.AveragePrices
             .Where(p => p.CacheKey.StartsWith("o" + upperTag) && p.Granularity == PriceGranularity.Daily)
             .OrderBy(p => p.Timestamp)
-            .Select(p => new 
+            .Select(p => new PriceHistoryPoint
             {
-                time = p.Timestamp,
-                min = p.Min,
-                max = p.Max,
-                avg = p.Avg,
-                volume = p.Volume
+                Time = p.Timestamp,
+                Min = p.Min,
+                Max = p.Max,
+                Avg = p.Avg,
+                Volume = p.Volume
             })
             .ToListAsync();
 
-        return Ok(priceData);
+        return Ok(CreatePriceHistoryResponse(priceData));
     }
 
     /// <summary>
@@ -745,19 +702,26 @@ public class AuctionsController : ControllerBase
             // Convert to response format matching Coflnet API
             var result = dbResult.Select(r => new 
             {
-                time = ((DateTime)r.Date).AddHours(r.Hour),
-                min = (long)r.Min,
-                max = (long)r.Max,
-                avg = r.Avg,
-                volume = (int)r.Volume
+                Time = ((DateTime)r.Date).AddHours(r.Hour),
+                Min = Convert.ToDouble(r.Min),
+                Max = Convert.ToDouble(r.Max),
+                Avg = Convert.ToDouble(r.Avg),
+                Volume = (int)r.Volume
+            }).Select(r => new PriceHistoryPoint
+            {
+                Time = r.Time,
+                Min = r.Min,
+                Max = r.Max,
+                Avg = r.Avg,
+                Volume = r.Volume
             }).ToList();
 
-            return Ok(result);
+            return Ok(CreatePriceHistoryResponse(result));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching price history for {Tag}", upperTag);
-            return Ok(new List<object>()); // Return empty on error
+            return Ok(CreatePriceHistoryResponse(new List<PriceHistoryPoint>()));
         }
     }
 
@@ -1287,4 +1251,32 @@ public class AuctionsController : ControllerBase
         // Default: standard search by item name or tag
         return a => a.ItemName.ToUpper().Contains(query) || a.Tag.Contains(query);
     }
+
+    private static PriceHistoryResponse CreatePriceHistoryResponse(List<PriceHistoryPoint> prices)
+    {
+        return new PriceHistoryResponse
+        {
+            Filterable = true,
+            Bazaar = false,
+            Filters = Array.Empty<string>(),
+            Prices = prices
+        };
+    }
+}
+
+public class PriceHistoryResponse
+{
+    public bool Filterable { get; set; }
+    public bool Bazaar { get; set; }
+    public IEnumerable<string> Filters { get; set; } = Array.Empty<string>();
+    public List<PriceHistoryPoint> Prices { get; set; } = new();
+}
+
+public class PriceHistoryPoint
+{
+    public double Min { get; set; }
+    public double Max { get; set; }
+    public double Avg { get; set; }
+    public int Volume { get; set; }
+    public DateTime Time { get; set; }
 }

@@ -784,12 +784,35 @@ public class NbtParserService
     public async Task<List<NBTLookup>> CreateLookupAsync(NbtCompound extraTag, int auctionId)
     {
         var lookups = new List<NBTLookup>();
+        var lookupIndex = new Dictionary<short, int>();
+
+        void UpsertLookup(NBTLookup lookup)
+        {
+            if (!lookup.KeyId.HasValue)
+                return;
+
+            if (lookupIndex.TryGetValue(lookup.KeyId.Value, out var existingIndex))
+            {
+                lookups[existingIndex] = lookup;
+            }
+            else
+            {
+                lookupIndex[lookup.KeyId.Value] = lookups.Count;
+                lookups.Add(lookup);
+            }
+        }
 
         // Helper to add numeric lookup
         async Task AddNumeric(string keyName, long value)
         {
             var keyId = await _nbtKeyService.GetOrCreateKeyId(keyName);
-            lookups.Add(new NBTLookup { AuctionId = auctionId, KeyId = keyId, ValueNumeric = value });
+            UpsertLookup(new NBTLookup
+            {
+                AuctionId = auctionId,
+                KeyId = keyId,
+                Key = keyName,
+                ValueNumeric = value
+            });
         }
 
         // Helper to add string lookup with value deduplication
@@ -798,10 +821,11 @@ public class NbtParserService
             if (string.IsNullOrEmpty(value)) return;
             var keyId = await _nbtKeyService.GetOrCreateKeyId(keyName);
             var valueId = await _nbtValueService.GetOrCreateValueId(keyId, value);
-            lookups.Add(new NBTLookup 
-            { 
-                AuctionId = auctionId, 
-                KeyId = keyId, 
+            UpsertLookup(new NBTLookup
+            {
+                AuctionId = auctionId,
+                KeyId = keyId,
+                Key = keyName,
                 ValueId = valueId,
                 ValueString = value  // Keep temporarily for migration compatibility
             });

@@ -65,25 +65,36 @@ public class FlipsController : ControllerBase
     /// Get price history for a specific item.
     /// </summary>
     [HttpGet("history/{tag}")]
-    public async Task<ActionResult<List<AveragePrice>>> GetPriceHistory(
+    public async Task<ActionResult<PriceHistoryResponse>> GetPriceHistory(
         string tag,
         [FromQuery] int days = 30)
     {
         var cutoffDate = DateTime.UtcNow.Date.AddDays(-days);
-        
+        var upperTag = tag.ToUpperInvariant();
+
         var history = await _context.AveragePrices
-            .Where(p => p.ItemTag == tag && 
-                       p.Timestamp >= cutoffDate &&
-                       p.Granularity == PriceGranularity.Daily)
-            .OrderByDescending(p => p.Timestamp)
+            .Where(p => p.CacheKey.StartsWith("o" + upperTag) &&
+                        p.Timestamp >= cutoffDate &&
+                        p.Granularity == PriceGranularity.Daily)
+            .GroupBy(p => p.Timestamp)
+            .OrderBy(g => g.Key)
+            .Select(g => new PriceHistoryPoint
+            {
+                Time = g.Key,
+                Min = g.Min(x => x.Min),
+                Max = g.Max(x => x.Max),
+                Avg = g.Average(x => x.Avg),
+                Volume = g.Sum(x => x.Volume)
+            })
             .ToListAsync();
 
-        if (history.Count == 0)
+        return Ok(new PriceHistoryResponse
         {
-            return NotFound(new { message = $"No price history found for {tag}" });
-        }
-
-        return Ok(history);
+            Filterable = true,
+            Bazaar = false,
+            Filters = Array.Empty<string>(),
+            Prices = history
+        });
     }
 
     /// <summary>

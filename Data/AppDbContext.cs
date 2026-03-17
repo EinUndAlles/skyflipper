@@ -114,6 +114,9 @@ public class AppDbContext : DbContext
                 .HasForeignKey(l => l.KeyId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Reference parity: one lookup row per auction/key.
+            entity.HasIndex(e => new { e.AuctionId, e.KeyId }).IsUnique();
+
             // NEW: Composite indexes for KeyId-based queries
             entity.HasIndex(e => new { e.KeyId, e.ValueNumeric });
             entity.HasIndex(e => new { e.KeyId, e.ValueString });

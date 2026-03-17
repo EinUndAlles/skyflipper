@@ -16,8 +16,8 @@ public class FlipperService : BackgroundService
     private readonly NbtParserService _nbtParser;
     private readonly ILogger<FlipperService> _logger;
 
-    private const int BatchSize = 200; // Increased from 50 for better throughput
-    private const int DelayBetweenBatchesMs = 50; // Reduced delay with larger batches
+    private const int BatchSize = 200;
+    private const int DelayBetweenBatchesMs = 50;
     private const int MaxRetries = 3;
     private const int InitialRetryDelayMs = 1000;
 
@@ -39,7 +39,7 @@ public class FlipperService : BackgroundService
         _logger.LogInformation("FlipperService starting (optimized: batch=200, retry=enabled)...");
 
         var batch = new List<Auction>(BatchSize);
-        var hypixelBatch = new List<HypixelAuction>(BatchSize);  // Keep hypixel data for bids
+        var hypixelBatch = new List<HypixelAuction>(BatchSize);
         var totalSaved = 0;
         var totalSkipped = 0;
         var totalRetries = 0;
@@ -50,12 +50,10 @@ public class FlipperService : BackgroundService
             {
                 try
                 {
-                    // Parse the auction
                     var auction = _nbtParser.ParseAuction(hypixelAuction);
                     batch.Add(auction);
-                    hypixelBatch.Add(hypixelAuction);  // Store parallel
+                    hypixelBatch.Add(hypixelAuction);
 
-                    // Flush when batch is full
                     if (batch.Count >= BatchSize)
                     {
                         var (saved, skipped, retries) = await FlushBatchWithRetry(batch, hypixelBatch, stoppingToken);
@@ -65,7 +63,6 @@ public class FlipperService : BackgroundService
                         batch.Clear();
                         hypixelBatch.Clear();
 
-                        // Rate limit - allow DB breathing room
                         await Task.Delay(DelayBetweenBatchesMs, stoppingToken);
                     }
                 }
@@ -77,21 +74,16 @@ public class FlipperService : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("FlipperService stopping... Saved {Saved} auctions, skipped {Skipped}, retries {Retries}", 
+            _logger.LogInformation("FlipperService stopping... Saved {Saved} auctions, skipped {Skipped}, retries {Retries}",
                 totalSaved, totalSkipped, totalRetries);
         }
 
-        // Flush remaining
         if (batch.Count > 0)
         {
             await FlushBatchWithRetry(batch, hypixelBatch, CancellationToken.None);
         }
     }
 
-    /// <summary>
-    /// Flush batch with exponential backoff retry logic.
-    /// If a full batch fails, splits it in half and retries each half separately.
-    /// </summary>
     private async Task<(int saved, int skipped, int retries)> FlushBatchWithRetry(
         List<Auction> batch,
         List<HypixelAuction> hypixelBatch,
@@ -106,10 +98,10 @@ public class FlipperService : BackgroundService
             {
                 if (attempt > 0)
                 {
-                    _logger.LogWarning("Retry attempt {Attempt}/{Max} for batch of {Count} auctions", 
+                    _logger.LogWarning("Retry attempt {Attempt}/{Max} for batch of {Count} auctions",
                         attempt, MaxRetries, batch.Count);
                     await Task.Delay(delay, stoppingToken);
-                    delay *= 2; // Exponential backoff
+                    delay *= 2;
                     retryCount++;
                 }
 
@@ -118,35 +110,28 @@ public class FlipperService : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException && attempt < MaxRetries)
             {
-                _logger.LogWarning(ex, "Failed to save batch (attempt {Attempt}/{Max}), will retry...", 
+                _logger.LogWarning(ex, "Failed to save batch (attempt {Attempt}/{Max}), will retry...",
                     attempt + 1, MaxRetries);
             }
             catch (Exception ex) when (ex is not OperationCanceledException && attempt == MaxRetries)
             {
-                // Final retry failed - try batch splitting
-                _logger.LogError(ex, "All retries exhausted for batch of {Count}. Attempting batch split...", 
+                _logger.LogError(ex, "All retries exhausted for batch of {Count}. Attempting batch split...",
                     batch.Count);
-                
+
                 if (batch.Count > 1)
                 {
                     return await SplitAndRetry(batch, hypixelBatch, stoppingToken, retryCount);
                 }
-                else
-                {
-                    _logger.LogError("Cannot split single-item batch. Auction lost: {Uuid}", 
-                        batch.FirstOrDefault()?.Uuid);
-                    return (0, 0, retryCount);
-                }
+
+                _logger.LogError("Cannot split single-item batch. Auction lost: {Uuid}",
+                    batch.FirstOrDefault()?.Uuid);
+                return (0, 0, retryCount);
             }
         }
 
         return (0, 0, retryCount);
     }
 
-    /// <summary>
-    /// Splits batch in half and attempts to save each half separately.
-    /// Recursively splits if necessary.
-    /// </summary>
     private async Task<(int saved, int skipped, int retries)> SplitAndRetry(
         List<Auction> batch,
         List<HypixelAuction> hypixelBatch,
@@ -159,7 +144,7 @@ public class FlipperService : BackgroundService
         var hBatch1 = hypixelBatch.Take(midpoint).ToList();
         var hBatch2 = hypixelBatch.Skip(midpoint).ToList();
 
-        _logger.LogInformation("Splitting batch of {Total} into {Size1} + {Size2}", 
+        _logger.LogInformation("Splitting batch of {Total} into {Size1} + {Size2}",
             batch.Count, batch1.Count, batch2.Count);
 
         var (saved1, skipped1, retries1) = await FlushBatchWithRetry(batch1, hBatch1, stoppingToken);
@@ -168,9 +153,6 @@ public class FlipperService : BackgroundService
         return (saved1 + saved2, skipped1 + skipped2, currentRetries + retries1 + retries2);
     }
 
-    /// <summary>
-    /// Core batch save logic with NBT data and lookups.
-    /// </summary>
     private async Task<(int saved, int skipped)> FlushBatch(
         List<Auction> batch,
         List<HypixelAuction> hypixelBatch,
@@ -178,127 +160,215 @@ public class FlipperService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var itemDetailsService = scope.ServiceProvider.GetRequiredService<ItemDetailsService>();
 
-        // Get existing UUIDs in one query
-        var uuids = batch.Select(a => a.Uuid).ToList();
-        var existingUuids = (await dbContext.Auctions
+        var incoming = batch
+            .Zip(hypixelBatch, (auction, hypixel) => new IncomingAuction(auction, hypixel))
+            .ToList();
+
+        var uuids = incoming.Select(x => x.Auction.Uuid).ToList();
+        var existingAuctions = await dbContext.Auctions
             .Where(a => uuids.Contains(a.Uuid))
-            .Select(a => a.Uuid)
-            .AsNoTracking()
-            .ToListAsync(stoppingToken))
-            .ToHashSet();
+            .Include(a => a.Bids)
+            .ToListAsync(stoppingToken);
 
-        // Only add new auctions
-        var newAuctions = batch.Where(a => !existingUuids.Contains(a.Uuid)).ToList();
-        var skipped = batch.Count - newAuctions.Count;
+        var existingByUuid = existingAuctions.ToDictionary(a => a.Uuid, StringComparer.Ordinal);
+        var refreshedExisting = 0;
 
-        if (newAuctions.Count > 0)
+        foreach (var entry in incoming.Where(x => existingByUuid.ContainsKey(x.Auction.Uuid)))
         {
-            // Step 1: Create NbtData for each auction (before first save)
-            foreach (var auction in newAuctions)
-            {
-                if (string.IsNullOrEmpty(auction.RawNbtBytes)) continue;
+            var existing = existingByUuid[entry.Auction.Uuid];
+            if (existing.Status != AuctionStatus.ACTIVE)
+                continue;
 
-                var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
-                if (extraTag != null)
-                {
-                    var nbtData = _nbtParser.CreateNbtData(extraTag);
-                    if (nbtData != null)
-                    {
-                        auction.NbtData = nbtData;
-                    }
-                }
+            var changed = ApplyAuctionRefresh(existing, entry.Auction);
+            var newBids = BuildMissingBidRecords(existing, entry.Hypixel);
+            if (newBids.Count > 0)
+            {
+                dbContext.BidRecords.AddRange(newBids);
+                changed = true;
             }
 
-            // Step 2: Save auctions with NbtData
-            dbContext.Auctions.AddRange(newAuctions);
+            if (changed)
+                refreshedExisting++;
+        }
+
+        if (refreshedExisting > 0)
+        {
             await dbContext.SaveChangesAsync(stoppingToken);
+        }
 
-            // Step 2.5: Save bids for auctions
-            var bidBatch = new List<BidRecord>();
-            for (int i = 0; i < newAuctions.Count; i++)
+        var newEntries = incoming
+            .Where(x => !existingByUuid.ContainsKey(x.Auction.Uuid))
+            .ToList();
+
+        if (newEntries.Count == 0)
+        {
+            if (refreshedExisting > 0)
             {
-                var auction = newAuctions[i];
-                var hypixelAuction = hypixelBatch[i];  // Use parallel batch
-                
-                if (hypixelAuction?.Bids != null && hypixelAuction.Bids.Count > 0)
+                _logger.LogInformation("Refreshed {UpdatedCount} existing auctions (no new auctions in batch)", refreshedExisting);
+            }
+
+            return (0, existingAuctions.Count);
+        }
+
+        var newAuctions = newEntries.Select(x => x.Auction).ToList();
+        foreach (var auction in newAuctions)
+        {
+            if (string.IsNullOrEmpty(auction.RawNbtBytes))
+                continue;
+
+            var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
+            if (extraTag == null)
+                continue;
+
+            var nbtData = _nbtParser.CreateNbtData(extraTag);
+            if (nbtData != null)
+                auction.NbtData = nbtData;
+        }
+
+        dbContext.Auctions.AddRange(newAuctions);
+        await dbContext.SaveChangesAsync(stoppingToken);
+
+        var bidBatch = new List<BidRecord>();
+        foreach (var entry in newEntries)
+        {
+            if (entry.Hypixel.Bids == null || entry.Hypixel.Bids.Count == 0)
+                continue;
+
+            foreach (var hypixelBid in entry.Hypixel.Bids)
+            {
+                bidBatch.Add(new BidRecord
                 {
-                    foreach (HypixelBid hypixelBid in hypixelAuction.Bids)
-                    {
-                        bidBatch.Add(new BidRecord
-                        {
-                            AuctionId = auction.Id,
-                            BidderId = hypixelBid.Bidder.Replace("-", ""),
-                            Amount = hypixelBid.Amount,
-                            Timestamp = hypixelBid.Timestamp
-                        });
-                    }
-                }
-            }
-
-            if (bidBatch.Count > 0)
-            {
-                dbContext.BidRecords.AddRange(bidBatch);
-                await dbContext.SaveChangesAsync(stoppingToken);
-            }
-
-            // Step 3: Create NBTLookups (requires auction IDs from database)
-            var lookupBatch = new List<NBTLookup>();
-            foreach (var auction in newAuctions)
-            {
-                if (string.IsNullOrEmpty(auction.RawNbtBytes)) continue;
-
-                var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
-                if (extraTag != null)
-                {
-                    var lookups = await _nbtParser.CreateLookupAsync(extraTag, auction.Id);
-                    lookupBatch.AddRange(lookups);
-                }
-            }
-
-            // Step 4: Save all NBTLookups in batch
-            if (lookupBatch.Count > 0)
-            {
-                dbContext.NBTLookups.AddRange(lookupBatch);
-                await dbContext.SaveChangesAsync(stoppingToken);
-            }
-
-            // Step 5: Update ItemDetails for all auctions
-            var itemDetailsService = scope.ServiceProvider.GetRequiredService<ItemDetailsService>();
-            foreach (var auction in newAuctions)
-            {
-                try
-                {
-                    await itemDetailsService.GetOrCreateItemDetails(
-                        auction.Tag,
-                        auction.ItemName,
-                        auction.Tier,
-                        auction.Category,
-                        null  // Lore not available on Auction model
-                    );
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to update ItemDetails for {Tag}", auction.Tag);
-                }
-            }
-
-            if (bidBatch.Count > 0 || lookupBatch.Count > 0)
-            {
-                _logger.LogInformation("✅ Saved {Count} auctions with {NbtCount} NBT data, {LookupCount} lookups, {BidCount} bids (skipped {Skipped})", 
-                    newAuctions.Count, 
-                    newAuctions.Count(a => a.NbtData != null),
-                    lookupBatch.Count,
-                    bidBatch.Count,
-                    skipped);
-            }
-            else
-            {
-                _logger.LogInformation("✅ Saved {Count} auctions, {BidCount} bids (skipped {Skipped} existing)", 
-                    newAuctions.Count, bidBatch.Count, skipped);
+                    AuctionId = entry.Auction.Id,
+                    BidderId = hypixelBid.Bidder.Replace("-", ""),
+                    Amount = hypixelBid.Amount,
+                    Timestamp = hypixelBid.Timestamp
+                });
             }
         }
 
-        return (newAuctions.Count, skipped);
+        if (bidBatch.Count > 0)
+        {
+            dbContext.BidRecords.AddRange(bidBatch);
+            await dbContext.SaveChangesAsync(stoppingToken);
+        }
+
+        var lookupBatch = new List<NBTLookup>();
+        foreach (var auction in newAuctions)
+        {
+            if (string.IsNullOrEmpty(auction.RawNbtBytes))
+                continue;
+
+            var extraTag = _nbtParser.GetExtraTagFromBytes(auction.RawNbtBytes);
+            if (extraTag != null)
+            {
+                var lookups = await _nbtParser.CreateLookupAsync(extraTag, auction.Id);
+                lookupBatch.AddRange(lookups);
+            }
+        }
+
+        if (lookupBatch.Count > 0)
+        {
+            dbContext.NBTLookups.AddRange(lookupBatch);
+            await dbContext.SaveChangesAsync(stoppingToken);
+        }
+
+        foreach (var auction in newAuctions)
+        {
+            try
+            {
+                await itemDetailsService.GetOrCreateItemDetails(
+                    auction.Tag,
+                    auction.ItemName,
+                    auction.Tier,
+                    auction.Category,
+                    null
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update ItemDetails for {Tag}", auction.Tag);
+            }
+        }
+
+        _logger.LogInformation("Saved {NewCount} new auctions with {NbtCount} NBT data, {LookupCount} lookups, {BidCount} bids; refreshed {UpdatedCount} existing auctions",
+            newAuctions.Count,
+            newAuctions.Count(a => a.NbtData != null),
+            lookupBatch.Count,
+            bidBatch.Count,
+            refreshedExisting);
+
+        return (newAuctions.Count, existingAuctions.Count);
     }
+
+    private static bool ApplyAuctionRefresh(Auction existing, Auction incoming)
+    {
+        var changed = false;
+
+        changed |= UpdateIfDifferent(existing.ItemName, incoming.ItemName, value => existing.ItemName = value);
+        changed |= UpdateIfDifferent(existing.StartingBid, incoming.StartingBid, value => existing.StartingBid = value);
+        changed |= UpdateIfDifferent(existing.HighestBidAmount, incoming.HighestBidAmount, value => existing.HighestBidAmount = value);
+        changed |= UpdateIfDifferent(existing.Bin, incoming.Bin, value => existing.Bin = value);
+        changed |= UpdateIfDifferent(existing.Start, incoming.Start, value => existing.Start = value);
+        changed |= UpdateIfDifferent(existing.End, incoming.End, value => existing.End = value);
+        changed |= UpdateIfDifferent(existing.AuctioneerId, incoming.AuctioneerId, value => existing.AuctioneerId = value);
+        changed |= UpdateIfDifferent(existing.Tag, incoming.Tag, value => existing.Tag = value);
+        changed |= UpdateIfDifferent(existing.Count, incoming.Count, value => existing.Count = value);
+        changed |= UpdateIfDifferent(existing.Tier, incoming.Tier, value => existing.Tier = value);
+        changed |= UpdateIfDifferent(existing.Category, incoming.Category, value => existing.Category = value);
+        changed |= UpdateIfDifferent(existing.Reforge, incoming.Reforge, value => existing.Reforge = value);
+        changed |= UpdateIfDifferent(existing.AnvilUses, incoming.AnvilUses, value => existing.AnvilUses = value);
+        changed |= UpdateIfDifferent(existing.ItemCreatedAt, incoming.ItemCreatedAt, value => existing.ItemCreatedAt = value);
+        changed |= UpdateIfDifferent(existing.ItemUid, incoming.ItemUid, value => existing.ItemUid = value);
+        changed |= UpdateIfDifferent(existing.Texture, incoming.Texture, value => existing.Texture = value);
+        changed |= UpdateIfDifferent(existing.FlatenedNBTJson, incoming.FlatenedNBTJson, value => existing.FlatenedNBTJson = value);
+
+        if (changed)
+        {
+            existing.FetchedAt = DateTime.UtcNow;
+        }
+
+        return changed;
+    }
+
+    private static bool UpdateIfDifferent<T>(T currentValue, T newValue, Action<T> apply)
+    {
+        if (EqualityComparer<T>.Default.Equals(currentValue, newValue))
+            return false;
+
+        apply(newValue);
+        return true;
+    }
+
+    private static List<BidRecord> BuildMissingBidRecords(Auction auction, HypixelAuction hypixelAuction)
+    {
+        if (hypixelAuction.Bids == null || hypixelAuction.Bids.Count == 0)
+            return new List<BidRecord>();
+
+        var existingBidKeys = auction.Bids
+            .Select(b => $"{b.BidderId}|{b.Amount}|{b.Timestamp.Ticks}")
+            .ToHashSet(StringComparer.Ordinal);
+
+        var result = new List<BidRecord>();
+        foreach (var hypixelBid in hypixelAuction.Bids)
+        {
+            var bidderId = hypixelBid.Bidder.Replace("-", "");
+            var bidKey = $"{bidderId}|{hypixelBid.Amount}|{hypixelBid.Timestamp.Ticks}";
+            if (!existingBidKeys.Add(bidKey))
+                continue;
+
+            result.Add(new BidRecord
+            {
+                AuctionId = auction.Id,
+                BidderId = bidderId,
+                Amount = hypixelBid.Amount,
+                Timestamp = hypixelBid.Timestamp
+            });
+        }
+
+        return result;
+    }
+
+    private sealed record IncomingAuction(Auction Auction, HypixelAuction Hypixel);
 }
