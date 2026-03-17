@@ -107,8 +107,9 @@ public class PriceAggregationService : BackgroundService
         var allAuctions = await dbContext.Auctions
             .Where(a => a.Status == AuctionStatus.SOLD &&
                        a.SoldPrice.HasValue &&
-                       a.End >= previousSlot &&
-                       a.End < currentSlot)
+                       a.SoldAt.HasValue &&
+                       a.SoldAt >= previousSlot &&
+                       a.SoldAt < currentSlot)
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTKey)
@@ -197,8 +198,9 @@ public class PriceAggregationService : BackgroundService
         var allAuctions = await dbContext.Auctions
             .Where(a => a.Status == AuctionStatus.SOLD &&
                        a.SoldPrice.HasValue &&
-                       a.End >= previousHour &&
-                       a.End < currentHour)
+                       a.SoldAt.HasValue &&
+                       a.SoldAt >= previousHour &&
+                       a.SoldAt < currentHour)
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTKey)

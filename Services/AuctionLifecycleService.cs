@@ -206,7 +206,26 @@ public class AuctionLifecycleService : BackgroundService
             await dbContext.SaveChangesAsync(stoppingToken);
         }
 
-// Fix auctions with negative prices (not zero - zero is valid for auctions with no bids)
+        // Fix sold auctions that are missing a usable final price in HighestBidAmount.
+        // The reference engine uses HighestBidAmount for historical valuation parity,
+        // so SOLD rows must carry the settled sale price there as well.
+        var soldMissingFinalPrice = await dbContext.Auctions
+            .Where(a => a.Status == AuctionStatus.SOLD &&
+                       a.SoldPrice.HasValue &&
+                       a.HighestBidAmount <= 0)
+            .ToListAsync(stoppingToken);
+
+        if (soldMissingFinalPrice.Count > 0)
+        {
+            foreach (var auction in soldMissingFinalPrice)
+            {
+                auction.HighestBidAmount = auction.SoldPrice!.Value;
+                fixes++;
+            }
+            await dbContext.SaveChangesAsync(stoppingToken);
+        }
+
+        // Fix auctions with negative prices (not zero - zero is valid for auctions with no bids)
         var invalidPriceAuctions = await dbContext.Auctions
             .Where(a => a.StartingBid < 0 || a.HighestBidAmount < 0)
             .ToListAsync(stoppingToken);

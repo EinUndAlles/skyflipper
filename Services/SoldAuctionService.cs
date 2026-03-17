@@ -148,13 +148,28 @@ public class SoldAuctionService : BackgroundService
                 if (endedById.TryGetValue(auction.Uuid.ToLowerInvariant(), out var ended))
                 {
                     auction.SoldPrice = ended.Price;
+                    auction.HighestBidAmount = Math.Max(auction.HighestBidAmount, ended.Price);
+                    var soldAt = DateTime.UtcNow;
                     try
                     {
-                        auction.SoldAt = DateTimeOffset.FromUnixTimeMilliseconds(ended.Timestamp).UtcDateTime;
+                        soldAt = DateTimeOffset.FromUnixTimeMilliseconds(ended.Timestamp).UtcDateTime;
                     }
                     catch
                     {
-                        auction.SoldAt = DateTime.UtcNow;
+                        soldAt = DateTime.UtcNow;
+                    }
+
+                    auction.SoldAt = soldAt;
+
+                    if (!string.IsNullOrWhiteSpace(ended.Buyer) &&
+                        !auction.Bids.Any(b => b.BidderId == ended.Buyer && b.Amount == ended.Price))
+                    {
+                        auction.Bids.Add(new BidRecord
+                        {
+                            BidderId = ended.Buyer,
+                            Amount = ended.Price,
+                            Timestamp = soldAt
+                        });
                     }
                 }
                 else

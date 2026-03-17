@@ -234,7 +234,7 @@ public class ReferenceAuctionService
             stageReferences.AddRange(veryRecent);
         }
 
-        if (stageReferences.Count > 0 && stageReferences.All(a => a.End > DateTime.UtcNow - TimeSpan.FromDays(1)))
+        if (stageReferences.Count > 0 && stageReferences.All(a => GetReferenceTimestamp(a) > DateTime.UtcNow - TimeSpan.FromDays(1)))
         {
             var antiManipulationReferences = await GetSelect(
                 auction,
@@ -331,7 +331,7 @@ public class ReferenceAuctionService
                 stoppingToken));
         }
 
-        if (relevantAuctions.Count > 0 && relevantAuctions.All(a => a.End > DateTime.UtcNow - TimeSpan.FromDays(1)))
+        if (relevantAuctions.Count > 0 && relevantAuctions.All(a => GetReferenceTimestamp(a) > DateTime.UtcNow - TimeSpan.FromDays(1)))
         {
             relevantAuctions.AddRange(await GetSelect(
                 auction,
@@ -370,16 +370,20 @@ public class ReferenceAuctionService
             .AsNoTracking()
             .Where(a => a.Tag == auction.Tag &&
                         a.Uuid != auction.Uuid &&
-                        a.End > oldest &&
-                        a.End < youngest &&
-                        a.HighestBidAmount > 0)
+                        ((((a.Status == AuctionStatus.SOLD && a.SoldAt.HasValue) &&
+                           a.SoldAt > oldest &&
+                           a.SoldAt < youngest)) ||
+                         (((a.Status != AuctionStatus.SOLD || !a.SoldAt.HasValue) &&
+                           a.End > oldest &&
+                           a.End < youngest))) &&
+                        (a.HighestBidAmount > 0 || a.SoldPrice.HasValue))
             .Include(a => a.Bids)
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(n => n.NBTKey)
             .Include(a => a.NBTLookups)
                 .ThenInclude(n => n.NBTValue)
-            .OrderByDescending(a => a.End);
+            .OrderByDescending(a => a.Status == AuctionStatus.SOLD && a.SoldAt.HasValue ? a.SoldAt : a.End);
 
         var roughLimit = Math.Max(limit * 8, 200);
         var candidates = await baseQuery.Take(roughLimit).ToListAsync(stoppingToken);
@@ -622,7 +626,7 @@ public class ReferenceAuctionService
         var auctions = (await Task.WhenAll(relevantAuctions.Select(async reference => new
         {
             Auction = reference,
-            Value = reference.HighestBidAmount / Math.Max(reference.Count, 1) / (reference.Count == auction.Count ? 1 : 3) - (await _componentValueService.GetGemstoneValueOnly(reference)).GemValue
+            Value = GetReferencePrice(reference) / Math.Max(reference.Count, 1) / (reference.Count == auction.Count ? 1 : 3) - (await _componentValueService.GetGemstoneValueOnly(reference)).GemValue
         }))).ToList();
 
         var fullTime = auctions.Select(a => a.Value)
@@ -630,14 +634,14 @@ public class ReferenceAuctionService
             .Skip(relevantAuctions.Count / 2)
             .FirstOrDefault();
 
-        var shortTerm = auctions.OrderByDescending(a => a.Auction.End)
+        var shortTerm = auctions.OrderByDescending(a => GetReferenceTimestamp(a.Auction))
             .Take(3)
             .OrderByDescending(a => a.Value)
             .Select(a => a.Value)
             .Skip(1)
             .FirstOrDefault();
 
-        if (auctions.Count > 10 && relevantAuctions.All(a => a.End > DateTime.UtcNow - TimeSpan.FromHours(20)))
+        if (auctions.Count > 10 && relevantAuctions.All(a => GetReferenceTimestamp(a) > DateTime.UtcNow - TimeSpan.FromHours(20)))
         {
             fullTime = auctions.Select(a => a.Value)
                 .OrderBy(a => a)
@@ -650,46 +654,53 @@ public class ReferenceAuctionService
 
     public static List<Auction> ApplyAntiMarketManipulation(List<Auction> relevantAuctions)
     {
-        var counter = 1;
         if (relevantAuctions.Count > 1)
         {
+            var counter = 1;
             relevantAuctions = relevantAuctions
-                .Where(a => a.Bids.Count > 0)
-                .GroupBy(a => a.AuctioneerId)
-                .Select(g => g.OrderBy(a => a.HighestBidAmount).First())
-                .GroupBy(a => a.Bids.OrderByDescending(b => b.Amount).First().BidderId)
-                .Select(g => g.First())
-                .GroupBy(a => a.ItemUid ?? counter++.ToString())
+                .GroupBy(a => a.AuctioneerId ?? $"unknown_seller_{counter++}")
+                .Select(g => g.OrderBy(GetReferencePrice).First())
+                .ToList();
+
+            counter = 1;
+            relevantAuctions = relevantAuctions
+                .GroupBy(a => GetWinningBidder(a) ?? $"unknown_buyer_{counter++}")
                 .Select(g => g.First())
                 .ToList();
-        }
 
-        if (counter > 2)
-        {
-            var pairs = relevantAuctions
-                .Where(a => a.Bids.Count > 0 && !string.IsNullOrEmpty(a.AuctioneerId))
-                .Select(a =>
-                {
-                    var buyer = a.Bids.OrderByDescending(b => b.Amount).First().BidderId;
-                    var seller = a.AuctioneerId!;
-                    return string.CompareOrdinal(buyer, seller) < 0 ? (buyer, seller) : (seller, buyer);
-                })
-                .GroupBy(a => a)
-                .Where(g => g.Count() > 1)
-                .Select(g => g.Key)
-                .ToHashSet();
+            counter = 1;
+            relevantAuctions = relevantAuctions
+                .GroupBy(a => a.ItemUid ?? $"no_uid_{counter++}")
+                .Select(g => g.First())
+                .ToList();
 
-            if (pairs.Count > 0)
+            if (counter > 2)
             {
-                relevantAuctions = relevantAuctions.Where(a =>
+                var pairs = relevantAuctions
+                    .Where(a => a.Bids.Count > 0 && !string.IsNullOrEmpty(a.AuctioneerId))
+                    .Select(a =>
+                    {
+                        var buyer = a.Bids.OrderByDescending(b => b.Amount).First().BidderId;
+                        var seller = a.AuctioneerId!;
+                        return string.CompareOrdinal(buyer, seller) < 0 ? (buyer, seller) : (seller, buyer);
+                    })
+                    .GroupBy(a => a)
+                    .Where(g => g.Count() > 1)
+                    .Select(g => g.Key)
+                    .ToHashSet();
+
+                if (pairs.Count > 0)
                 {
-                    if (a.Bids.Count == 0 || string.IsNullOrEmpty(a.AuctioneerId))
-                        return true;
-                    var buyer = a.Bids.OrderByDescending(b => b.Amount).First().BidderId;
-                    var seller = a.AuctioneerId!;
-                    var pair = string.CompareOrdinal(buyer, seller) < 0 ? (buyer, seller) : (seller, buyer);
-                    return !pairs.Contains(pair);
-                }).ToList();
+                    relevantAuctions = relevantAuctions.Where(a =>
+                    {
+                        if (a.Bids.Count == 0 || string.IsNullOrEmpty(a.AuctioneerId))
+                            return true;
+                        var buyer = a.Bids.OrderByDescending(b => b.Amount).First().BidderId;
+                        var seller = a.AuctioneerId!;
+                        var pair = string.CompareOrdinal(buyer, seller) < 0 ? (buyer, seller) : (seller, buyer);
+                        return !pairs.Contains(pair);
+                    }).ToList();
+                }
             }
         }
 
@@ -858,6 +869,33 @@ public class ReferenceAuctionService
             .OrderByDescending(e => e.Level)
             .ThenBy(e => e.Type.ToString(), StringComparer.Ordinal)
             .First();
+    }
+
+    private static long GetReferencePrice(Auction auction)
+    {
+        if (auction.SoldPrice.HasValue && auction.SoldPrice.Value > 0)
+            return auction.SoldPrice.Value;
+
+        if (auction.HighestBidAmount > 0)
+            return auction.HighestBidAmount;
+
+        return auction.StartingBid;
+    }
+
+    private static string? GetWinningBidder(Auction auction)
+    {
+        return auction.Bids
+            .OrderByDescending(b => b.Amount)
+            .FirstOrDefault()
+            ?.BidderId;
+    }
+
+    private static DateTime GetReferenceTimestamp(Auction auction)
+    {
+        if (auction.Status == AuctionStatus.SOLD && auction.SoldAt.HasValue)
+            return auction.SoldAt.Value;
+
+        return auction.End;
     }
 }
 
