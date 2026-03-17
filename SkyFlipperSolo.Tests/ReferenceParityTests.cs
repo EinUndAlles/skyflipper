@@ -267,6 +267,116 @@ public class ReferenceParityTests
         Assert.That(outOfRange.FlatNbtMatches, Is.False);
     }
 
+    [Test]
+    public void EvaluateCandidateMatch_AllowsFinalDestinationKillRangeParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "FINAL_DESTINATION_CHESTPLATE",
+            ItemName = "Final Destination Chestplate",
+            Tier = Tier.LEGENDARY,
+            Category = Category.ARMOR,
+            StartingBid = 40_000_000,
+            FlatenedNBTJson = """{"eman_kills":"10000"}"""
+        };
+
+        var inRangeCandidate = new Auction
+        {
+            Tag = "FINAL_DESTINATION_CHESTPLATE",
+            ItemName = "Final Destination Chestplate",
+            Tier = Tier.LEGENDARY,
+            Category = Category.ARMOR,
+            StartingBid = 41_000_000,
+            FlatenedNBTJson = """{"eman_kills":"10800"}"""
+        };
+
+        var outOfRangeCandidate = new Auction
+        {
+            Tag = "FINAL_DESTINATION_CHESTPLATE",
+            ItemName = "Final Destination Chestplate",
+            Tier = Tier.LEGENDARY,
+            Category = Category.ARMOR,
+            StartingBid = 41_000_000,
+            FlatenedNBTJson = """{"eman_kills":"12500"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["eman_kills"] = "10000"
+        };
+
+        var inRange = referenceService.EvaluateCandidateMatch(inRangeCandidate, target, "Destination Chestplate", targetFlatNbt, null, new List<Enchantment>(), false);
+        var outOfRange = referenceService.EvaluateCandidateMatch(outOfRangeCandidate, target, "Destination Chestplate", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(inRange.IsMatch, Is.True,
+            $"tier={inRange.TierMatches}, reforge={inRange.ReforgeMatches}, stack={inRange.StackMatches}, name={inRange.NameMatches}, nbt={inRange.FlatNbtMatches}, enchants={inRange.EnchantmentsMatch}");
+        Assert.That(outOfRange.IsMatch, Is.False);
+        Assert.That(outOfRange.FlatNbtMatches, Is.False);
+    }
+
+    [Test]
+    public void EvaluateCandidateMatch_RequiresDyedArmorParity()
+    {
+        var referenceService = CreateReferenceAuctionService();
+        var target = new Auction
+        {
+            Tag = "CRIMSON_CHESTPLATE",
+            ItemName = "Crimson Chestplate",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 55_000_000,
+            FlatenedNBTJson = """{"color":"255:0:0","dye_item":"DYE_FLAME"}"""
+        };
+
+        var matchingCandidate = new Auction
+        {
+            Tag = "CRIMSON_CHESTPLATE",
+            ItemName = "Crimson Chestplate",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 56_000_000,
+            FlatenedNBTJson = """{"color":"255:0:0","dye_item":"DYE_FLAME"}"""
+        };
+
+        var wrongColorCandidate = new Auction
+        {
+            Tag = "CRIMSON_CHESTPLATE",
+            ItemName = "Crimson Chestplate",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 56_000_000,
+            FlatenedNBTJson = """{"color":"0:0:255","dye_item":"DYE_FLAME"}"""
+        };
+
+        var wrongDyeCandidate = new Auction
+        {
+            Tag = "CRIMSON_CHESTPLATE",
+            ItemName = "Crimson Chestplate",
+            Tier = Tier.MYTHIC,
+            Category = Category.ARMOR,
+            StartingBid = 56_000_000,
+            FlatenedNBTJson = """{"color":"255:0:0","dye_item":"DYE_AZURE"}"""
+        };
+
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["color"] = "255:0:0",
+            ["dye_item"] = "DYE_FLAME"
+        };
+
+        var matching = referenceService.EvaluateCandidateMatch(matchingCandidate, target, "Crimson Chestplate", targetFlatNbt, null, new List<Enchantment>(), false);
+        var wrongColor = referenceService.EvaluateCandidateMatch(wrongColorCandidate, target, "Crimson Chestplate", targetFlatNbt, null, new List<Enchantment>(), false);
+        var wrongDye = referenceService.EvaluateCandidateMatch(wrongDyeCandidate, target, "Crimson Chestplate", targetFlatNbt, null, new List<Enchantment>(), false);
+
+        Assert.That(matching.IsMatch, Is.True,
+            $"tier={matching.TierMatches}, reforge={matching.ReforgeMatches}, stack={matching.StackMatches}, name={matching.NameMatches}, nbt={matching.FlatNbtMatches}, enchants={matching.EnchantmentsMatch}");
+        Assert.That(wrongColor.IsMatch, Is.False);
+        Assert.That(wrongColor.FlatNbtMatches, Is.False);
+        Assert.That(wrongDye.IsMatch, Is.False);
+        Assert.That(wrongDye.FlatNbtMatches, Is.False);
+    }
+
     private static Auction BuildParityAuction(string uuid, string itemName, string sellerId, string itemUid, string bidderId)
     {
         var referenceEnd = DateTime.UtcNow.AddMinutes(-20);
