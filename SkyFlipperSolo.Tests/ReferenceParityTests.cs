@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -81,41 +82,50 @@ public class ReferenceParityTests
     }
 
     [Test]
-    [Ignore("Known parity gap: reference selection still diverges on this enchant/NBT case and needs follow-up investigation.")]
     public async Task GetRelevantAuctionsKeepsOnlyExactEnchantParityCase()
     {
         var dbName = Guid.NewGuid().ToString("N");
+        var dbRoot = new InMemoryDatabaseRoot();
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(dbName)
+            .UseInMemoryDatabase(dbName, dbRoot)
             .Options;
 
         await using (var seedContext = new AppDbContext(options))
         {
-            var target = BuildParityAuction("92ddfaae7e4e46b29eb2d652d9b043ac", "Ancient Maxor's Leggings");
-            var matching = BuildParityAuction("fc92b460920d486494732beeed57ed77", "Ancient Maxor's Leggings");
-            var wrongEnchant = BuildParityAuction("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Ancient Maxor's Leggings");
+            var target = BuildParityAuction("92ddfaae7e4e46b29eb2d652d9b043ac", "Ancient Maxor's Leggings", "seller-target", "uid-target", "bidder-target");
+            var matching = Enumerable.Range(0, 11)
+                .Select(i => BuildParityAuction(
+                    $"fc92b460920d486494732beeed57ed{i:00}",
+                    "Ancient Maxor's Leggings",
+                    $"seller-match-{i}",
+                    $"uid-match-{i}",
+                    $"bidder-match-{i}"))
+                .ToList();
+            var wrongEnchant = BuildParityAuction("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Ancient Maxor's Leggings", "seller-wrong-enchant", "uid-wrong-enchant", "bidder-wrong-enchant");
             wrongEnchant.Enchantments = new List<Enchantment>
             {
                 CreateEnchant(EnchantmentType.rejuvenate, 5),
                 CreateEnchant(EnchantmentType.protection, 5),
                 CreateEnchant(EnchantmentType.growth, 5),
             };
-            var wrongTier = BuildParityAuction("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Ancient Maxor's Leggings");
+            var wrongTier = BuildParityAuction("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Ancient Maxor's Leggings", "seller-wrong-tier", "uid-wrong-tier", "bidder-wrong-tier");
             wrongTier.Tier = Tier.LEGENDARY;
 
-            seedContext.Auctions.AddRange(target, matching, wrongEnchant, wrongTier);
+            seedContext.Auctions.Add(target);
+            seedContext.Auctions.AddRange(matching);
+            seedContext.Auctions.AddRange(wrongEnchant, wrongTier);
             await seedContext.SaveChangesAsync();
         }
 
         var serviceProvider = new ServiceCollection()
-            .AddSingleton(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName).Options)
-            .AddScoped(_ => new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName).Options))
+            .AddSingleton(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName, dbRoot).Options)
+            .AddScoped(_ => new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName, dbRoot).Options))
             .BuildServiceProvider();
 
         var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
         var referenceService = CreateReferenceAuctionService(scopeFactory);
 
-        await using var queryContext = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName).Options);
+        await using var queryContext = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName, dbRoot).Options);
         var targetAuction = await queryContext.Auctions
             .Include(a => a.Bids)
             .Include(a => a.Enchantments)
@@ -123,13 +133,38 @@ public class ReferenceParityTests
             .FirstAsync(a => a.Uuid == "92ddfaae7e4e46b29eb2d652d9b043ac");
 
         var result = await referenceService.GetRelevantAuctionsCacheAsync(targetAuction, CancellationToken.None);
+        var trace = await referenceService.DebugRelevantAuctionsAsync(targetAuction, CancellationToken.None);
+        var candidateAuction = await queryContext.Auctions
+            .Include(a => a.Bids)
+            .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups).ThenInclude(n => n.NBTKey)
+            .FirstAsync(a => a.AuctioneerId == "seller-match-0");
 
-        Assert.That(result.References.Select(a => a.Uuid).ToList(), Does.Contain("fc92b460920d486494732beeed57ed77"));
+        var clearedName = "Maxor's Leggings";
+        var targetFlatNbt = new Dictionary<string, string>
+        {
+            ["rarity_upgrades"] = "1",
+            ["hpc"] = "10",
+            ["color"] = "93:47:185",
+            ["dungeon_item_level"] = "5",
+            ["uid"] = "uid-target"
+        };
+        var relevantEnchants = CacheKeyService.ExtractRelevantEnchants(targetAuction.Enchantments);
+        var debug = referenceService.EvaluateCandidateMatch(candidateAuction, targetAuction, clearedName, targetFlatNbt, null, relevantEnchants, false);
+
+        Assert.That(debug.IsMatch, Is.True,
+            $"tier={debug.TierMatches}, reforge={debug.ReforgeMatches}, stack={debug.StackMatches}, name={debug.NameMatches}, nbt={debug.FlatNbtMatches}, enchants={debug.EnchantmentsMatch}");
+
+        Assert.That(trace.InitialCount + trace.ExpandedDayCount + trace.ExpandedWeekCount + trace.ReducedCount + trace.RecentReducedCount + trace.AntiManipulationSourceCount, Is.GreaterThan(0),
+            $"initial={trace.InitialCount}, day={trace.ExpandedDayCount}, week={trace.ExpandedWeekCount}, reduced={trace.ReducedCount}, recentReduced={trace.RecentReducedCount}, antiSource={trace.AntiManipulationSourceCount}, beforeAnti={trace.BeforeAntiManipulationCount}, afterAnti={trace.AfterAntiManipulationCount}");
+
+        Assert.That(result.References.Select(a => a.AuctioneerId).ToList(), Does.Contain("seller-match-0"),
+            $"initial={trace.InitialCount}, day={trace.ExpandedDayCount}, week={trace.ExpandedWeekCount}, reduced={trace.ReducedCount}, recentReduced={trace.RecentReducedCount}, antiSource={trace.AntiManipulationSourceCount}, beforeAnti={trace.BeforeAntiManipulationCount}, afterAnti={trace.AfterAntiManipulationCount}");
         Assert.That(result.References.Select(a => a.Uuid).ToList(), Does.Not.Contain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         Assert.That(result.References.Select(a => a.Uuid).ToList(), Does.Not.Contain("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     }
 
-    private static Auction BuildParityAuction(string uuid, string itemName)
+    private static Auction BuildParityAuction(string uuid, string itemName, string sellerId, string itemUid, string bidderId)
     {
         var referenceEnd = DateTime.UtcNow.AddMinutes(-20);
         var auction = new Auction
@@ -143,18 +178,19 @@ public class ReferenceParityTests
             ItemName = itemName,
             Start = referenceEnd.AddHours(-1),
             End = referenceEnd,
-            AuctioneerId = "be87f03b822140a5a47f7f66ad59486a",
+            AuctioneerId = sellerId,
             Reforge = Reforge.Ancient,
             Category = Category.ARMOR,
             Tier = Tier.MYTHIC,
             Bin = true,
-            FlatenedNBTJson = """
-                {"rarity_upgrades":"1","hpc":"10","color":"93:47:185","dungeon_item_level":"5","uid":"f5922c6f7047"}
+            FlatenedNBTJson = $$"""
+                {"rarity_upgrades":"1","hpc":"10","color":"93:47:185","dungeon_item_level":"5","uid":"{{itemUid}}"}
                 """,
-            ItemCreatedAt = DateTime.UtcNow.AddDays(-10)
+            ItemCreatedAt = DateTime.UtcNow.AddDays(-10),
+            ItemUid = itemUid
         };
 
-        auction.Bids.Add(new BidRecord { BidderId = "bidder1", Amount = 19_000_000, Timestamp = referenceEnd.AddMinutes(-1) });
+        auction.Bids.Add(new BidRecord { BidderId = bidderId, Amount = 19_000_000, Timestamp = referenceEnd.AddMinutes(-1) });
         auction.Enchantments.Add(CreateEnchant(EnchantmentType.thorns, 3));
         auction.Enchantments.Add(CreateEnchant(EnchantmentType.rejuvenate, 5));
         auction.Enchantments.Add(CreateEnchant(EnchantmentType.protection, 6));

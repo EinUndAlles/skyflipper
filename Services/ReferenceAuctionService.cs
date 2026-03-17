@@ -156,6 +156,120 @@ public class ReferenceAuctionService
         return fetched;
     }
 
+    public async Task<RelevantReferenceDebugResult> DebugRelevantAuctionsAsync(Auction auction, CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var clearedName = auction.Reforge != Reforge.None ? RemoveReforgePrefix(auction.ItemName) : auction.ItemName;
+        var youngest = DateTime.UtcNow;
+        var oldest = DateTime.UtcNow - TimeSpan.FromHours(2);
+
+        var relevantEnchants = CacheKeyService.ExtractRelevantEnchants(auction.Enchantments);
+        var ultimate = relevantEnchants.FirstOrDefault(e => e.Type.ToString().StartsWith("ultimate_", StringComparison.OrdinalIgnoreCase));
+
+        var initial = await GetSelect(auction, clearedName, youngest, oldest, ultimate, relevantEnchants, 30, false, dbContext, stoppingToken);
+        var stageReferences = initial.ToList();
+        var initialCount = stageReferences.Count;
+        var expandedDayCount = 0;
+        var expandedWeekCount = 0;
+        var reducedCount = 0;
+        var recentReducedCount = 0;
+        var antiManipulationSourceCount = 0;
+
+        if (stageReferences.Count < 11)
+        {
+            youngest = oldest;
+            oldest = DateTime.UtcNow - TimeSpan.FromDays(1.5);
+            var dayReferences = await GetSelect(auction, clearedName, youngest, oldest, ultimate, relevantEnchants, 90, false, dbContext, stoppingToken);
+            expandedDayCount = dayReferences.Count;
+            stageReferences = stageReferences.Concat(dayReferences).ToList();
+
+            if (stageReferences.Count < 50)
+            {
+                youngest = oldest;
+                oldest = DateTime.UtcNow - TimeSpan.FromDays(8);
+                var weekReferences = await GetSelect(auction, clearedName, youngest, oldest, ultimate, relevantEnchants, 120, false, dbContext, stoppingToken);
+                expandedWeekCount = weekReferences.Count;
+                stageReferences.AddRange(weekReferences);
+
+                if (stageReferences.Count < 10)
+                {
+                    youngest = DateTime.UtcNow;
+                    clearedName = clearedName.Replace("âœª", "", StringComparison.Ordinal).Trim();
+                    var reducedReferences = await GetSelect(auction, clearedName, youngest, oldest, ultimate, relevantEnchants, 120, true, dbContext, stoppingToken);
+                    reducedCount = reducedReferences.Count;
+                    stageReferences = reducedReferences;
+
+                    var recentReducedReferences = await GetSelect(
+                        auction,
+                        clearedName,
+                        youngest,
+                        DateTime.UtcNow - TimeSpan.FromDays(0.5),
+                        ultimate,
+                        relevantEnchants,
+                        10,
+                        true,
+                        dbContext,
+                        stoppingToken);
+                    recentReducedCount = recentReducedReferences.Count;
+                    stageReferences.AddRange(recentReducedReferences);
+                }
+            }
+        }
+        else if (stageReferences.Count >= 30)
+        {
+            var veryRecent = await GetSelect(
+                auction,
+                clearedName,
+                youngest,
+                DateTime.UtcNow - TimeSpan.FromMinutes(15),
+                ultimate,
+                relevantEnchants,
+                20,
+                true,
+                dbContext,
+                stoppingToken);
+            recentReducedCount = veryRecent.Count;
+            stageReferences.AddRange(veryRecent);
+        }
+
+        if (stageReferences.Count > 0 && stageReferences.All(a => a.End > DateTime.UtcNow - TimeSpan.FromDays(1)))
+        {
+            var antiManipulationReferences = await GetSelect(
+                auction,
+                clearedName,
+                DateTime.UtcNow - TimeSpan.FromDays(5),
+                DateTime.UtcNow - TimeSpan.FromDays(6),
+                ultimate,
+                relevantEnchants,
+                40,
+                true,
+                dbContext,
+                stoppingToken);
+            antiManipulationSourceCount = antiManipulationReferences.Count;
+            stageReferences.AddRange(antiManipulationReferences);
+        }
+
+        var beforeAntiManipulationCount = stageReferences.Count;
+        var afterAntiManipulation = ApplyAntiMarketManipulation(stageReferences);
+        var afterAntiManipulationCount = afterAntiManipulation.Count;
+
+        if (!CacheKeyService.HasMasterCryptSols(auction))
+            afterAntiManipulation = afterAntiManipulation.Where(a => !CacheKeyService.HasMasterCryptSols(a)).ToList();
+
+        return new RelevantReferenceDebugResult(
+            afterAntiManipulation,
+            initialCount,
+            expandedDayCount,
+            expandedWeekCount,
+            reducedCount,
+            recentReducedCount,
+            antiManipulationSourceCount,
+            beforeAntiManipulationCount,
+            afterAntiManipulationCount);
+    }
+
     private async Task<RelevantReferenceResult> GetRelevantAuctionsAsync(Auction auction, CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
@@ -288,26 +402,40 @@ public class ReferenceAuctionService
         List<Enchantment> relevantEnchants,
         bool reduced)
     {
+        var debug = EvaluateCandidateMatch(candidate, target, clearedName, targetFlatNbt, ultimate, relevantEnchants, reduced);
+        return debug.IsMatch;
+    }
+
+    public CandidateMatchDebug EvaluateCandidateMatch(
+        Auction candidate,
+        Auction target,
+        string clearedName,
+        Dictionary<string, string> targetFlatNbt,
+        Enchantment? ultimate,
+        List<Enchantment> relevantEnchants,
+        bool reduced)
+    {
         var recombMatters = CacheKeyService.DoesRecombMatter(target.Category, target.Tag);
-        if (target.Tag != "ENCHANTED_BOOK" && (recombMatters || CacheKeyService.IsPet(target.Tag)) && candidate.Tier != target.Tier)
-            return false;
+        var tierMatches = !(target.Tag != "ENCHANTED_BOOK" && (recombMatters || CacheKeyService.IsPet(target.Tag)) && candidate.Tier != target.Tier);
 
-        if (!ReforgeMatches(candidate, target, reduced))
-            return false;
+        var reforgeMatches = ReforgeMatches(candidate, target, reduced);
 
-        if (target.Count == 64 && !reduced && candidate.Count != target.Count)
-            return false;
+        var stackMatches = !(target.Count == 64 && !reduced && candidate.Count != target.Count);
 
-        if (!NameMatches(candidate, target, clearedName))
-            return false;
+        var nameMatches = NameMatches(candidate, target, clearedName);
 
-        if (!FlatNbtMatches(candidate, target, targetFlatNbt, recombMatters, reduced))
-            return false;
+        var flatNbtMatches = FlatNbtMatches(candidate, target, targetFlatNbt, recombMatters, reduced);
 
-        if (!EnchantmentsMatch(candidate, target, relevantEnchants, ultimate, reduced))
-            return false;
+        var enchantmentsMatch = EnchantmentsMatch(candidate, target, relevantEnchants, ultimate, reduced);
 
-        return true;
+        return new CandidateMatchDebug(
+            tierMatches && reforgeMatches && stackMatches && nameMatches && flatNbtMatches && enchantmentsMatch,
+            tierMatches,
+            reforgeMatches,
+            stackMatches,
+            nameMatches,
+            flatNbtMatches,
+            enchantmentsMatch);
     }
 
     private static bool ReforgeMatches(Auction candidate, Auction target, bool reduced)
@@ -734,6 +862,26 @@ public class ReferenceAuctionService
 }
 
 public sealed record RelevantReferenceResult(List<Auction> References, DateTime Oldest);
+
+public sealed record RelevantReferenceDebugResult(
+    List<Auction> References,
+    int InitialCount,
+    int ExpandedDayCount,
+    int ExpandedWeekCount,
+    int ReducedCount,
+    int RecentReducedCount,
+    int AntiManipulationSourceCount,
+    int BeforeAntiManipulationCount,
+    int AfterAntiManipulationCount);
+
+public sealed record CandidateMatchDebug(
+    bool IsMatch,
+    bool TierMatches,
+    bool ReforgeMatches,
+    bool StackMatches,
+    bool NameMatches,
+    bool FlatNbtMatches,
+    bool EnchantmentsMatch);
 
 public sealed record FlipValuationResult(
     string CacheKey,
