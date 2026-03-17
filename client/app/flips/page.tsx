@@ -53,10 +53,14 @@ export default function FlipsPage() {
     // Handle incoming new flip
     const handleNewFlip = useCallback((flip: FlipNotification) => {
         setFlips(prev => {
-            const exists = prev.some(f => f.auctionUuid === flip.auctionUuid);
-            if (exists) return prev;
+            const existingIndex = prev.findIndex(f => f.auctionUuid === flip.auctionUuid);
+            if (existingIndex >= 0) {
+                const updated = [...prev];
+                updated[existingIndex] = { ...updated[existingIndex], ...flip, status: 'ACTIVE' };
+                return updated.sort((a, b) => b.estimatedProfit - a.estimatedProfit);
+            }
 
-            const newFlips = [flip, ...prev];
+            const newFlips = [{ ...flip, status: 'ACTIVE' as const }, ...prev];
             // Keep sorted by profit
             return newFlips.sort((a, b) => b.estimatedProfit - a.estimatedProfit);
         });
@@ -66,12 +70,23 @@ export default function FlipsPage() {
 
     // Handle full update
     const handleFlipsUpdated = useCallback((updatedFlips: FlipNotification[]) => {
-        setFlips(updatedFlips.sort((a, b) => b.estimatedProfit - a.estimatedProfit));
+        setFlips(prev => {
+            const soldOrExpired = prev.filter(f => f.status && f.status !== 'ACTIVE');
+            const mergedActive = updatedFlips.map(flip => {
+                const existing = prev.find(f => f.auctionUuid === flip.auctionUuid);
+                return { ...existing, ...flip, status: 'ACTIVE' as const };
+            });
+            const dedupedHistorical = soldOrExpired.filter(old => !mergedActive.some(active => active.auctionUuid === old.auctionUuid));
+            return [...mergedActive, ...dedupedHistorical].sort((a, b) => b.estimatedProfit - a.estimatedProfit);
+        });
     }, []);
 
-    // Handle auction sold/expired - remove from list
-    const handleAuctionSold = useCallback((auctionUuid: string) => {
-        setFlips(prev => prev.filter(f => f.auctionUuid !== auctionUuid));
+    // Handle auction sold/expired - keep card but mark status
+    const handleAuctionStatusChanged = useCallback((update: { auctionUuid: string; status: 'SOLD' | 'EXPIRED' | 'ACTIVE' }) => {
+        setFlips(prev => prev.map(f =>
+            f.auctionUuid === update.auctionUuid
+                ? { ...f, status: update.status }
+                : f));
     }, []);
 
     // Connect to SignalR
@@ -91,7 +106,7 @@ export default function FlipsPage() {
 
                 connection.on('FlipsUpdated', handleFlipsUpdated);
                 connection.on('NewFlip', handleNewFlip);
-                connection.on('AuctionSold', handleAuctionSold);
+                connection.on('AuctionStatusChanged', handleAuctionStatusChanged);
 
                 connection.onreconnecting(() => {
                     setConnectionState('Reconnecting');
@@ -134,11 +149,11 @@ export default function FlipsPage() {
             if (connectionRef.current) {
                 connectionRef.current.off('FlipsUpdated');
                 connectionRef.current.off('NewFlip');
-                connectionRef.current.off('AuctionSold');
+                connectionRef.current.off('AuctionStatusChanged');
                 connectionRef.current.stop();
             }
         };
-    }, [handleFlipsUpdated, handleNewFlip, handleAuctionSold]);
+    }, [handleFlipsUpdated, handleNewFlip, handleAuctionStatusChanged]);
 
     // Helper for badge color based on profit
     const getProfitBadgeVariant = (profit: number) => {
@@ -252,17 +267,32 @@ export default function FlipsPage() {
 
                             {/* BIN Badge */}
                             <div className="mb-3">
-                                <span style={{ 
-                                    backgroundColor: '#ffaa00', 
-                                    color: '#000', 
-                                    fontWeight: 'bold', 
-                                    padding: '2px 6px', 
-                                    borderRadius: '2px',
-                                    fontSize: '0.8rem',
-                                    textTransform: 'uppercase'
-                                }}>
-                                    BIN
-                                </span>
+                                <div className="d-flex gap-2">
+                                    <span style={{ 
+                                        backgroundColor: '#ffaa00', 
+                                        color: '#000', 
+                                        fontWeight: 'bold', 
+                                        padding: '2px 6px', 
+                                        borderRadius: '2px',
+                                        fontSize: '0.8rem',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        BIN
+                                    </span>
+                                    {flip.status && flip.status !== 'ACTIVE' && (
+                                        <span style={{
+                                            backgroundColor: flip.status === 'SOLD' ? '#55aa55' : '#777777',
+                                            color: '#ffffff',
+                                            fontWeight: 'bold',
+                                            padding: '2px 6px',
+                                            borderRadius: '2px',
+                                            fontSize: '0.8rem',
+                                            textTransform: 'uppercase'
+                                        }}>
+                                            {flip.status}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Stats */}

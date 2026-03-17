@@ -83,7 +83,8 @@ public class FlipBroadcastService : BackgroundService
             AuctionEnd = f.AuctionEnd,
             DataSource = f.DataSource,
             Seller = auctions.TryGetValue(f.AuctionUuid, out var auction) ? auction.AuctioneerId : null,
-            Volume = f.ReferenceCount
+            Volume = f.ReferenceCount,
+            Status = "ACTIVE"
         }).ToList();
 
         // Broadcast all flips to subscribers
@@ -143,7 +144,11 @@ public class FlipBroadcastService : BackgroundService
         {
             // Notify clients this auction is no longer available
             await _hubContext.Clients.Group(FlipSubscribersGroup)
-                .SendAsync("AuctionSold", auction.Uuid, cancellationToken);
+                .SendAsync("AuctionStatusChanged", new
+                {
+                    auctionUuid = auction.Uuid,
+                    status = auction.Status.ToString()
+                }, cancellationToken);
             
             // Remove from tracking
             _activeBroadcastedUuids.Remove(auction.Uuid);

@@ -12,5 +12,6 @@ export interface FlipNotification {
     dataSource: string;
     seller?: string | null;
     volume?: number;
+    status?: 'ACTIVE' | 'SOLD' | 'EXPIRED';
     valueBreakdown?: string;
 }

@@ -64,4 +64,5 @@ public class FlipNotification
     public string DataSource { get; set; } = string.Empty;
     public string? Seller { get; set; }
     public int Volume { get; set; }
+    public string Status { get; set; } = "ACTIVE";
 }
