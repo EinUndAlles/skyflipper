@@ -915,17 +915,18 @@ public class AuctionsController : ControllerBase
         var auctions = await query
             .Skip(page * pageSize)
             .Take(pageSize)
-            .Select(a => new 
+            .Select(a => new AuctionPreviewResponse
             {
-                a.Uuid,
-                a.ItemName,
-                a.Tag,
-                a.Tier,
+                Uuid = a.Uuid,
+                ItemName = a.ItemName,
+                Tag = a.Tag,
+                Tier = a.Tier.ToString(),
                 Price = a.Bin ? a.StartingBid : a.HighestBidAmount,
-                a.Bin,
-                a.End,
-                a.AuctioneerId,
-                a.Texture,
+                Bin = a.Bin,
+                End = a.End,
+                Seller = a.AuctioneerId,
+                PlayerName = null,
+                Texture = a.Texture,
                 TimeRemaining = (a.End - DateTime.UtcNow).TotalSeconds
             })
             .ToListAsync();
@@ -967,17 +968,19 @@ public class AuctionsController : ControllerBase
             .OrderByDescending(a => a.SoldAt)
             .Skip(page * pageSize)
             .Take(pageSize)
-            .Select(a => new 
+            .Select(a => new AuctionPreviewResponse
             {
-                a.Uuid,
-                a.ItemName,
-                a.Tag,
-                a.Tier,
+                Uuid = a.Uuid,
+                ItemName = a.ItemName,
+                Tag = a.Tag,
+                Tier = a.Tier.ToString(),
                 Price = a.SoldPrice ?? a.HighestBidAmount,
-                a.Bin,
-                a.SoldAt,
-                a.AuctioneerId,
-                a.Texture
+                Bin = a.Bin,
+                End = a.SoldAt ?? a.End,
+                Seller = a.AuctioneerId,
+                PlayerName = null,
+                Texture = a.Texture,
+                SoldAt = a.SoldAt
             })
             .ToListAsync();
 
@@ -1279,4 +1282,20 @@ public class PriceHistoryPoint
     public double Avg { get; set; }
     public int Volume { get; set; }
     public DateTime Time { get; set; }
+}
+
+public class AuctionPreviewResponse
+{
+    public string Uuid { get; set; } = string.Empty;
+    public string ItemName { get; set; } = string.Empty;
+    public string Tag { get; set; } = string.Empty;
+    public string Tier { get; set; } = string.Empty;
+    public long Price { get; set; }
+    public bool Bin { get; set; }
+    public DateTime End { get; set; }
+    public string? Seller { get; set; }
+    public string? PlayerName { get; set; }
+    public string? Texture { get; set; }
+    public double? TimeRemaining { get; set; }
+    public DateTime? SoldAt { get; set; }
 }
