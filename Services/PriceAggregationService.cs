@@ -19,6 +19,8 @@ public class PriceAggregationService : BackgroundService
     // High-volume items get 15-minute aggregation for faster price updates
     private const int HIGH_VOLUME_THRESHOLD = 10; // Items with 10+ sales per hour qualify
 
+    private sealed record AggregateInput(string ItemTag, string CacheKey, List<double> Prices, int BinCount);
+
     /// <summary>
     /// Date when gemstone/unlocked slots were introduced to Skyblock.
     /// Items with unlocked_slots NBT should only compare to items created after this date.
@@ -123,7 +125,7 @@ public class PriceAggregationService : BackgroundService
         soldAuctions = ApplyUnlockedSlotsDateFilter(soldAuctions);
 
         // Group by cache key
-        var aggregatesData = new List<(string CacheKey, List<double> Prices, int BinCount)>();
+        var aggregatesData = new List<AggregateInput>();
         
         foreach (var group in soldAuctions
             .Select(a => new
@@ -150,7 +152,8 @@ public class PriceAggregationService : BackgroundService
             // (at least 2 sales in 15 min = ~8+ sales/hour)
             if (prices.Count >= 2)
             {
-                aggregatesData.Add((group.Key, prices, binCount));
+                var itemTag = group.Select(x => x.Auction.Tag).FirstOrDefault() ?? string.Empty;
+                aggregatesData.Add(new AggregateInput(itemTag, group.Key, prices, binCount));
             }
         }
 
@@ -159,15 +162,11 @@ public class PriceAggregationService : BackgroundService
             return;
         }
 
-        var aggregates = aggregatesData
-            .Select(x => new { CacheKey = x.CacheKey, Prices = x.Prices, BinCount = x.BinCount })
-            .ToList();
-
-        await SavePriceAggregates(dbContext, aggregates, previousSlot, 
+        await SavePriceAggregates(dbContext, aggregatesData, previousSlot, 
             PriceGranularity.FifteenMinute, stoppingToken);
 
         _logger.LogDebug("⚡ Aggregated 15-min prices for {Time}: {Count} high-volume items",
-            previousSlot.ToString("HH:mm"), aggregates.Count);
+            previousSlot.ToString("HH:mm"), aggregatesData.Count);
     }
 
     /// <summary>
@@ -225,7 +224,7 @@ public class PriceAggregationService : BackgroundService
         // Group by cache key and calculate statistics
         // CRITICAL: Subtract gem value from each sale to get "base item" price
         // This matches reference project: FlippingEngine.cs line 340
-        var aggregatesData = new List<(string CacheKey, List<double> Prices, int BinCount)>();
+        var aggregatesData = new List<AggregateInput>();
         
         foreach (var group in soldAuctions
             .Select(a => new
@@ -250,18 +249,15 @@ public class PriceAggregationService : BackgroundService
                 if (item.Auction.Bin)
                     binCount++;
             }
-            aggregatesData.Add((group.Key, prices, binCount));
+            var itemTag = group.Select(x => x.Auction.Tag).FirstOrDefault() ?? string.Empty;
+            aggregatesData.Add(new AggregateInput(itemTag, group.Key, prices, binCount));
         }
 
-        var aggregates = aggregatesData
-            .Select(x => new { CacheKey = x.CacheKey, Prices = x.Prices, BinCount = x.BinCount })
-            .ToList();
-
-        await SavePriceAggregates(dbContext, aggregates, previousHour, 
+        await SavePriceAggregates(dbContext, aggregatesData, previousHour, 
             PriceGranularity.Hourly, stoppingToken);
 
         _logger.LogInformation("⏰ Aggregated hourly prices for {Hour}: {Count} items, {Sales} sales",
-            previousHour, aggregates.Count, soldAuctions.Count);
+            previousHour, aggregatesData.Count, soldAuctions.Count);
     }
 
     /// <summary>
@@ -287,9 +283,11 @@ public class PriceAggregationService : BackgroundService
             .Select(g => new
             {
                 CacheKey = g.Key,
+                ItemTag = g.Select(p => p.ItemTag).FirstOrDefault(tag => !string.IsNullOrEmpty(tag)) ?? string.Empty,
                 Min = g.Min(p => p.Min),
                 Max = g.Max(p => p.Max),
-                Medians = g.Select(p => p.Median).ToList(),
+                WeightedAverageSum = g.Sum(p => p.Avg * p.Volume),
+                MedianSamples = g.SelectMany(p => Enumerable.Repeat(p.Median, Math.Max(p.Volume, 1))).ToList(),
                 TotalVolume = g.Sum(p => p.Volume),
                 TotalBinCount = g.Sum(p => p.BinCount)
             })
@@ -307,14 +305,14 @@ public class PriceAggregationService : BackgroundService
 
             var dailyAggregate = new AveragePrice
             {
-                ItemTag = "", // Will be set when we parse the cache key, but not critical for daily aggregates
+                ItemTag = item.ItemTag,
                 CacheKey = item.CacheKey,
                 Timestamp = yesterday,
                 Granularity = PriceGranularity.Daily,
                 Min = item.Min,
                 Max = item.Max,
-                Avg = item.Medians.Average(),
-                Median = CalculateMedian(item.Medians.OrderBy(m => m)),
+                Avg = item.WeightedAverageSum / item.TotalVolume,
+                Median = CalculateMedian(item.MedianSamples),
                 Volume = item.TotalVolume,
                 BinCount = item.TotalBinCount
             };
@@ -383,25 +381,18 @@ public class PriceAggregationService : BackgroundService
     /// <summary>
     /// Saves price aggregates to database with upsert logic.
     /// </summary>
-    private async Task SavePriceAggregates<T>(
+    private async Task SavePriceAggregates(
         AppDbContext dbContext,
-        List<T> aggregates,
+        List<AggregateInput> aggregates,
         DateTime timestamp,
         PriceGranularity granularity,
-        CancellationToken stoppingToken) where T : class
+        CancellationToken stoppingToken)
     {
         foreach (var item in aggregates)
         {
-            // Use reflection to get CacheKey, Prices, and BinCount properties
-            var cacheKeyProp = item.GetType().GetProperty("CacheKey");
-            var pricesProp = item.GetType().GetProperty("Prices");
-            var binCountProp = item.GetType().GetProperty("BinCount");
-
-            if (cacheKeyProp == null || pricesProp == null) continue;
-
-            var cacheKey = cacheKeyProp.GetValue(item) as string;
-            var prices = pricesProp.GetValue(item) as List<double>;
-            var binCount = binCountProp?.GetValue(item) as int? ?? 0;
+            var cacheKey = item.CacheKey;
+            var prices = item.Prices;
+            var binCount = item.BinCount;
 
             if (string.IsNullOrEmpty(cacheKey) || prices == null || prices.Count == 0) continue;
 
@@ -409,7 +400,7 @@ public class PriceAggregationService : BackgroundService
 
             var avgPrice = new AveragePrice
             {
-                ItemTag = "", // CacheKey contains the tag info, but keep for backward compatibility
+                ItemTag = item.ItemTag,
                 CacheKey = cacheKey,
                 Timestamp = timestamp,
                 Granularity = granularity,

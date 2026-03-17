@@ -73,7 +73,7 @@ public class FlipsController : ControllerBase
         var upperTag = tag.ToUpperInvariant();
 
         var history = await _context.AveragePrices
-            .Where(p => p.CacheKey.StartsWith("o" + upperTag) &&
+            .Where(p => (p.ItemTag == upperTag || (p.ItemTag == string.Empty && p.CacheKey.StartsWith("o" + upperTag))) &&
                         p.Timestamp >= cutoffDate &&
                         p.Granularity == PriceGranularity.Daily)
             .GroupBy(p => p.Timestamp)

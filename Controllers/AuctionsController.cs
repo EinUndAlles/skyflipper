@@ -557,7 +557,7 @@ public class AuctionsController : ControllerBase
         
         // Query across all caches for this tag by prefixing the cache key with the tag
         var priceEntries = await _context.AveragePrices
-            .Where(p => p.CacheKey.StartsWith("o" + upperTag) &&
+            .Where(p => (p.ItemTag == upperTag || (p.ItemTag == string.Empty && p.CacheKey.StartsWith("o" + upperTag))) &&
                         p.Granularity == gran &&
                         p.Timestamp >= cutoff)
             .ToListAsync();
@@ -615,7 +615,8 @@ public class AuctionsController : ControllerBase
         var upperTag = itemTag.ToUpper();
         
         var priceData = await _context.AveragePrices
-            .Where(p => p.CacheKey.StartsWith("o" + upperTag) && p.Granularity == PriceGranularity.Daily)
+            .Where(p => (p.ItemTag == upperTag || (p.ItemTag == string.Empty && p.CacheKey.StartsWith("o" + upperTag))) &&
+                        p.Granularity == PriceGranularity.Daily)
             .OrderBy(p => p.Timestamp)
             .Select(p => new PriceHistoryPoint
             {
