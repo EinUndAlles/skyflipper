@@ -52,10 +52,14 @@ public class FlipsController : ControllerBase
             Tier = auctions.TryGetValue(f.AuctionUuid, out var auction) 
                 ? auction.Tier.ToString() 
                 : "UNKNOWN",
+            Seller = auctions.TryGetValue(f.AuctionUuid, out var sellerAuction)
+                ? sellerAuction.AuctioneerId
+                : null,
             Texture = auctions.TryGetValue(f.AuctionUuid, out var auc) 
                 ? auc.Texture 
                 : null,
-            ValueBreakdown = f.ValueBreakdown
+            ValueBreakdown = f.ValueBreakdown,
+            Volume = f.ReferenceCount
         }).ToList();
 
         return Ok(result);
@@ -145,8 +149,10 @@ public class FlipOpportunityDto
     public DateTime DetectedAt { get; set; }
     public DateTime AuctionEnd { get; set; }
     public string Tier { get; set; } = string.Empty;
+    public string? Seller { get; set; }
     public string? Texture { get; set; }
     public string ValueBreakdown { get; set; } = string.Empty;
+    public int Volume { get; set; }
 
     // Compatibility aliases for consumers that prefer shorter/cofl-like field names.
     public string Uuid => AuctionUuid;

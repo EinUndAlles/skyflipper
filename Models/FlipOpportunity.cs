@@ -54,4 +54,9 @@ public class FlipOpportunity
     /// </summary>
     [MaxLength(200)]
     public string ValueBreakdown { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of reference auctions used for valuation.
+    /// </summary>
+    public int ReferenceCount { get; set; }
 }

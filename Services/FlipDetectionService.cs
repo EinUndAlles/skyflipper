@@ -105,7 +105,8 @@ public class FlipDetectionService : BackgroundService
                 ProfitMarginPercent = valuation.ProfitMarginPercent,
                 AuctionEnd = auction.End,
                 DataSource = valuation.DataSource,
-                ValueBreakdown = valuation.ValueBreakdown
+                ValueBreakdown = valuation.ValueBreakdown,
+                ReferenceCount = valuation.ReferenceCount
             });
 
             if (!hitUpdates.ContainsKey(valuation.CacheKey))

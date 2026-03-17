@@ -62,10 +62,12 @@ public class FlipBroadcastService : BackgroundService
             .Take(50) // Limit to top 50 flips
             .ToListAsync(cancellationToken);
 
-        if (flips.Count == 0)
-        {
-            return;
-        }
+        var auctionUuids = flips.Select(f => f.AuctionUuid).ToList();
+        var auctions = auctionUuids.Count == 0
+            ? new Dictionary<string, Auction>()
+            : await dbContext.Auctions
+                .Where(a => auctionUuids.Contains(a.Uuid))
+                .ToDictionaryAsync(a => a.Uuid, cancellationToken);
 
         // Convert to notifications
         var notifications = flips.Select(f => new FlipNotification
@@ -79,12 +81,21 @@ public class FlipBroadcastService : BackgroundService
             ProfitMarginPercent = f.ProfitMarginPercent,
             DetectedAt = f.DetectedAt,
             AuctionEnd = f.AuctionEnd,
-            DataSource = f.DataSource
+            DataSource = f.DataSource,
+            Seller = auctions.TryGetValue(f.AuctionUuid, out var auction) ? auction.AuctioneerId : null,
+            Volume = f.ReferenceCount
         }).ToList();
 
         // Broadcast all flips to subscribers
         await _hubContext.Clients.Group(FlipSubscribersGroup)
             .SendAsync("FlipsUpdated", notifications, cancellationToken);
+
+        if (flips.Count == 0)
+        {
+            _previouslyBroadcastedUuids.Clear();
+            _activeBroadcastedUuids.Clear();
+            return;
+        }
 
         // Find and broadcast new flips
         var currentUuids = flips.Select(f => f.AuctionUuid).ToHashSet();

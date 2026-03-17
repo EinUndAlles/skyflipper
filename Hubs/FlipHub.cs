@@ -62,4 +62,6 @@ public class FlipNotification
     public DateTime DetectedAt { get; set; }
     public DateTime AuctionEnd { get; set; }
     public string DataSource { get; set; } = string.Empty;
+    public string? Seller { get; set; }
+    public int Volume { get; set; }
 }

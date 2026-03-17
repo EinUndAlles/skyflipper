@@ -289,12 +289,12 @@ export default function FlipsPage() {
 
                                 <div className="mb-3">
                                     <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Seller:</div>
-                                    <div style={{ color: '#ffffff' }}>---</div>
+                                    <div style={{ color: '#ffffff' }}>{flip.seller || '---'}</div>
                                 </div>
 
                                 <div className="mb-3">
                                     <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Volume:</div>
-                                    <div style={{ color: '#ffffff' }}>---</div>
+                                    <div style={{ color: '#ffffff' }}>{flip.volume ?? '---'}</div>
                                 </div>
                             </div>
 

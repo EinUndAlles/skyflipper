@@ -10,5 +10,7 @@ export interface FlipNotification {
     detectedAt: string;
     auctionEnd: string;
     dataSource: string;
+    seller?: string | null;
+    volume?: number;
     valueBreakdown?: string;
 }
