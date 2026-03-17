@@ -175,13 +175,6 @@ public class AuctionFetcherService : BackgroundService
 
         foreach (var auction in page.Auctions)
         {
-            // Only process BIN auctions (flipping non-BIN is much harder)
-            if (!auction.Bin)
-            {
-                skipped++;
-                continue;
-            }
-
             // Skip auctions that already ended
             if (auction.End < DateTime.UtcNow)
             {

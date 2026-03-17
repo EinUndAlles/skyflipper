@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
+using System.Text.RegularExpressions;
 
 namespace SkyFlipperSolo.Services;
 
@@ -31,6 +32,9 @@ public class ItemDetailsService
         if (string.IsNullOrEmpty(tag))
             throw new ArgumentException("Tag cannot be null or empty", nameof(tag));
 
+        // Clean the item name for display (remove levels from runes/potions, etc.)
+        var cleanedName = CleanItemNameForDisplay(tag, itemName);
+
         // Check cache
         lock (_lock)
         {
@@ -49,7 +53,7 @@ public class ItemDetailsService
             details = new ItemDetails
             {
                 Tag = tag,
-                DisplayName = itemName,
+                DisplayName = cleanedName,
                 Description = lore,
                 FallbackTier = tier,
                 FallbackCategory = category,
@@ -58,16 +62,16 @@ public class ItemDetailsService
             context.ItemDetails.Add(details);
             await context.SaveChangesAsync();
 
-            _logger.LogInformation("Created item details for {Tag}: {Name}", tag, itemName);
+            _logger.LogInformation("Created item details for {Tag}: {Name}", tag, cleanedName);
         }
         else
         {
             // Update last seen
             details.LastSeen = DateTime.UtcNow;
-            
+
             // Update display name if changed
-            if (!string.IsNullOrEmpty(itemName) && details.DisplayName != itemName)
-                details.DisplayName = itemName;
+            if (!string.IsNullOrEmpty(cleanedName) && details.DisplayName != cleanedName)
+                details.DisplayName = cleanedName;
 
             await context.SaveChangesAsync();
         }
@@ -79,6 +83,75 @@ public class ItemDetailsService
         }
 
         return details;
+    }
+
+    /// <summary>
+    /// Cleans item names for display by removing level indicators, stars, etc.
+    /// Mirrors the cleaning logic from AuctionsController.SearchItems
+    /// </summary>
+    private static string CleanItemNameForDisplay(string tag, string itemName)
+    {
+        var cleanName = itemName;
+
+        // Remove Stars & Master Stars (✪, ➊, ➋, etc.)
+        cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"[✪✫⚚➊➋➌➍➎➏➐➑➒]+", "").Trim();
+
+        // Pet cleaning (though pets should have composite tags)
+        if (tag == "PET" || tag.StartsWith("PET_"))
+        {
+            // Remove [Lvl 123] prefix
+            cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"^\[Lvl \d+\]\s+", "");
+            // Remove (Rarity) suffix
+            cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s\(\w+\)$", "");
+        }
+        // Potion cleaning
+        else if (tag.StartsWith("POTION_"))
+        {
+            // Remove Roman numeral levels: "Speed V Potion" → "Speed Potion"
+            cleanName = System.Text.RegularExpressions.Regex.Replace(
+                cleanName,
+                @"\s+(X{0,1}(?:IX|IV|V?I{0,3}))\s+(?=Potion|Splash)",
+                " ",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            cleanName = cleanName.Trim();
+        }
+        // Rune cleaning
+        else if (tag.Contains("RUNE_"))
+        {
+            // Remove level indicators: "Blood Rune III COMMON" → "Blood Rune COMMON"
+            cleanName = System.Text.RegularExpressions.Regex.Replace(
+                cleanName,
+                @"\s+(X{0,1}(?:IX|IV|V?I{0,3}))(\s|$)",
+                "$2",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            cleanName = cleanName.Trim();
+        }
+        // Reforge cleaning (same logic as AuctionsController)
+        else
+        {
+            var reforgeNames = Enum.GetNames(typeof(SkyFlipperSolo.Models.Reforge));
+            foreach (var reforgeName in reforgeNames)
+            {
+                if (reforgeName == "None") continue;
+
+                var hasReforgeSpace = cleanName.StartsWith(reforgeName + " ", StringComparison.OrdinalIgnoreCase);
+                var hasReforgeApostrophe = cleanName.StartsWith(reforgeName + "'s ", StringComparison.OrdinalIgnoreCase);
+
+                if (hasReforgeSpace || hasReforgeApostrophe)
+                {
+                    if (!tag.Contains(reforgeName.ToUpper()))
+                    {
+                        if (hasReforgeSpace)
+                            cleanName = cleanName.Substring(reforgeName.Length + 1);
+                        else // hasReforgeApostrophe
+                            cleanName = cleanName.Substring(reforgeName.Length + 3);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return cleanName;
     }
 
     /// <summary>

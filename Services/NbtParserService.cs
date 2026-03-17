@@ -293,7 +293,7 @@ public class NbtParserService
         {
             if (extraTag.TryGet("potion", out NbtTag? potionTag) && potionTag is NbtString potionStr)
             {
-                id = $"{id}_{potionStr.StringValue}";
+                id = $"{id}_{potionStr.StringValue.ToUpper()}";
             }
         }
         // *RUNE → {base}_{runeType} (e.g., UNIQUE_RUNE_ICE)

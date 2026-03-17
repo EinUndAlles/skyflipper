@@ -125,15 +125,20 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ uuid: 
                             {/* Auction Metadata */}
                             <div className="border-top border-secondary pt-3">
                                 <Row className="g-3 small">
-                                    <Col xs={6}>
-                                        <span className="text-muted">Starting Bid:</span>
-                                        <span className="float-end">{auctionData.startingBid.toLocaleString()}</span>
-                                    </Col>
-                                    {auctionData.highestBidAmount > 0 && (
-                                        <Col xs={6}>
-                                            <span className="text-muted">Highest Bid:</span>
-                                            <span className="float-end text-warning">{auctionData.highestBidAmount.toLocaleString()}</span>
-                                        </Col>
+                                    {/* Only show Starting Bid and Highest Bid for non-BIN auctions */}
+                                    {!auctionData.bin && (
+                                        <>
+                                            <Col xs={6}>
+                                                <span className="text-muted">Starting Bid:</span>
+                                                <span className="float-end">{auctionData.startingBid.toLocaleString()}</span>
+                                            </Col>
+                                            {auctionData.highestBidAmount > 0 && (
+                                                <Col xs={6}>
+                                                    <span className="text-muted">Highest Bid:</span>
+                                                    <span className="float-end text-warning">{auctionData.highestBidAmount.toLocaleString()}</span>
+                                                </Col>
+                                            )}
+                                        </>
                                     )}
                                     <Col xs={6}>
                                         <span className="text-muted">Started:</span>

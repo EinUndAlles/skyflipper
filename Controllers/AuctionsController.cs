@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
+using System.Linq;
+using System.Linq.Expressions;
 using System.Net.Http;
 using System.Text.Json;
 using System.Web;
@@ -404,9 +406,12 @@ public class AuctionsController : ControllerBase
 
         query = query.ToUpper();
 
+        // Build search predicates - handle special item types like potions and runes
+        var searchPredicates = BuildSearchPredicates(query);
+
         // 1. Fetch a larger pool of potential matches to filter/group in memory
         var rawMatches = await _context.Auctions
-            .Where(a => a.ItemName.ToUpper().Contains(query) || a.Tag.Contains(query))
+            .Where(searchPredicates)
             .OrderByDescending(a => a.End) // Get recent ones first
             .Take(100) // Fetch enough to cover duplicates/variations
             .Select(a => new
@@ -441,6 +446,31 @@ public class AuctionsController : ControllerBase
                     // Remove (Rarity) suffix
                     cleanName = System.Text.RegularExpressions.Regex.Replace(cleanName, @"\s\(\w+\)$", "");
                 }
+                // --- Potion Cleaning ---
+                // Remove Roman numeral levels from potion names: "Speed V Potion" → "Speed Potion"
+                else if (item.Tag.StartsWith("POTION_"))
+                {
+                    // Match patterns like "Speed V Potion", "Strength VII Potion", etc.
+                    // Roman numerals: I, II, III, IV, V, VI, VII, VIII, IX, X
+                    cleanName = System.Text.RegularExpressions.Regex.Replace(
+                        cleanName, 
+                        @"\s+(X{0,1}(?:IX|IV|V?I{0,3}))\s+(?=Potion|Splash)", 
+                        " ",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    cleanName = cleanName.Trim();
+                }
+                 // --- Rune Cleaning ---
+                 // Remove level indicators from rune names: "Blood Rune III COMMON" → "Blood Rune COMMON"
+                 else if (item.Tag.Contains("RUNE_"))
+                 {
+                     // Match patterns like "Blood Rune I", "Ice Rune III", etc.
+                     cleanName = System.Text.RegularExpressions.Regex.Replace(
+                         cleanName,
+                         @"\s+(X{0,1}(?:IX|IV|V?I{0,3}))(\s|$)",
+                         "$2",
+                         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                     cleanName = cleanName.Trim();
+                 }
                 // --- Reforge Cleaning ---
                 else 
                 {
@@ -525,21 +555,34 @@ public class AuctionsController : ControllerBase
         
         var cutoff = DateTime.UtcNow.AddDays(-days);
         
-        var priceData = await _context.AveragePrices
-            .Where(p => p.ItemTag == upperTag && 
-                       p.Granularity == gran && 
-                       p.Timestamp >= cutoff)
-            .OrderBy(p => p.Timestamp)
-            .Select(p => new 
-            {
-                p.Timestamp,
-                p.Min,
-                p.Max,
-                p.Avg,
-                p.Median,
-                p.Volume
-            })
+        // Query across all caches for this tag by prefixing the cache key with the tag
+        var priceEntries = await _context.AveragePrices
+            .Where(p => p.CacheKey.StartsWith("o" + upperTag) &&
+                        p.Granularity == gran &&
+                        p.Timestamp >= cutoff)
             .ToListAsync();
+
+        // Group by timestamp to present a single price point per time bucket
+        var priceData = priceEntries
+            .GroupBy(p => p.Timestamp)
+            .OrderBy(g => g.Key)
+            .Select(g => new 
+            {
+                time = g.Key,
+                min = g.Min(x => x.Min),
+                max = g.Max(x => x.Max),
+                avg = g.Average(x => x.Avg),
+                volume = g.Sum(x => x.Volume)
+            })
+            .ToList();
+
+        // Compute median across the per-bucket medians if available
+        var medians = priceEntries.Select(p => p.Median).ToList();
+        var avgMedian = medians.Count > 0 ? CalculateMedian(medians) : 0.0;
+        // First/last point for trend calculation (using per-bucket medians if available)
+        var firstPrice = priceEntries.FirstOrDefault()?.Median ?? priceData.FirstOrDefault()?.avg ?? 0;
+        var lastPrice = priceEntries.LastOrDefault()?.Median ?? priceData.LastOrDefault()?.avg ?? 0;
+        var priceChange = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
 
         if (priceData.Count == 0)
         {
@@ -551,17 +594,15 @@ public class AuctionsController : ControllerBase
                 Summary = (object?)null
             });
         }
-
         // Calculate summary statistics
-        var totalVolume = priceData.Sum(p => p.Volume);
-        var avgMedian = priceData.Average(p => p.Median);
-        var firstPrice = priceData.First().Median;
-        var lastPrice = priceData.Last().Median;
-        var priceChange = firstPrice > 0 ? ((lastPrice - firstPrice) / firstPrice) * 100 : 0;
-        
-        string trend = "stable";
-        if (priceChange > 5) trend = "increasing";
-        else if (priceChange < -5) trend = "decreasing";
+        var totalVolume = priceData.Sum(p => p.volume);
+        var firstPoint = priceData.First();
+        var lastPoint = priceData.Last();
+        var firstPrice2 = firstPoint.min; // use the min as a rough baseline for initial point
+        var lastPrice2 = lastPoint.max;   // use the max as a rough baseline for final point
+        var priceDelta = firstPrice2 > 0 ? ((lastPrice2 - firstPrice2) / firstPrice2) * 100 : 0;
+        string computedTrend = "stable";
+        if (priceDelta > 5) computedTrend = "increasing"; else if (priceDelta < -5) computedTrend = "decreasing";
 
         return Ok(new 
         {
@@ -572,10 +613,10 @@ public class AuctionsController : ControllerBase
             {
                 TotalVolume = totalVolume,
                 AvgMedian = avgMedian,
-                PriceChange = Math.Round(priceChange, 2),
-                Trend = trend,
-                LowestMin = priceData.Min(p => p.Min),
-                HighestMax = priceData.Max(p => p.Max)
+                PriceChange = Math.Round(priceDelta, 2),
+                Trend = computedTrend,
+                LowestMin = priceData.Min(p => p.min),
+                HighestMax = priceData.Max(p => p.max)
             }
         });
     }
@@ -617,7 +658,7 @@ public class AuctionsController : ControllerBase
         var upperTag = itemTag.ToUpper();
         
         var priceData = await _context.AveragePrices
-            .Where(p => p.ItemTag == upperTag && p.Granularity == PriceGranularity.Daily)
+            .Where(p => p.CacheKey.StartsWith("o" + upperTag) && p.Granularity == PriceGranularity.Daily)
             .OrderBy(p => p.Timestamp)
             .Select(p => new 
             {
@@ -815,6 +856,18 @@ public class AuctionsController : ControllerBase
             med = median,
             volume = sorted.Count / days
         });
+    }
+
+    // Lightweight median helper for internal use in price history aggregation
+    private static double CalculateMedian(IEnumerable<double> values)
+    {
+        var list = values.OrderBy(v => v).ToList();
+        if (list.Count == 0) return 0;
+        int mid = list.Count / 2;
+        if (list.Count % 2 == 0)
+            return (list[mid - 1] + list[mid]) / 2.0;
+        else
+            return list[mid];
     }
 
     /// <summary>
@@ -1156,5 +1209,82 @@ public class AuctionsController : ControllerBase
             _logger.LogError(ex, "Error fetching player name for UUID {Uuid}", uuid);
             return Ok(new { name = fallbackName, note = "Error fetching from API" });
         }
+    }
+
+    /// <summary>
+    /// Builds search predicates for special item types like potions and runes.
+    /// Handles queries like "speed potion" → POTION_SPEED, "blood rune" → *RUNE_BLOOD
+    /// </summary>
+    private Expression<Func<Auction, bool>> BuildSearchPredicates(string query)
+    {
+        // Normalize query for pattern matching
+        var normalizedQuery = query.Trim().ToUpper();
+        
+        // Check for potion search patterns: "X potion", "potion X", "X pot"
+        var potionPatterns = new[] { " POTION", "POTION ", " POT" };
+        foreach (var pattern in potionPatterns)
+        {
+            if (normalizedQuery.Contains(pattern) || normalizedQuery.EndsWith(" POT"))
+            {
+                var potionType = normalizedQuery
+                    .Replace(" POTION", "")
+                    .Replace("POTION ", "")
+                    .Replace(" POT", "")
+                    .Trim()
+                    .Replace(" ", "_");
+                    
+                if (!string.IsNullOrEmpty(potionType))
+                {
+                    // Search for POTION_{type} in tag OR the potion type in item name
+                    var potionTag = $"POTION_{potionType}";
+                    return a => a.Tag.Contains(potionTag) || 
+                                a.ItemName.ToUpper().Contains(potionType);
+                }
+            }
+        }
+        
+        // Check for rune search patterns: "X rune", "rune X"
+        var runePatterns = new[] { " RUNE", "RUNE " };
+        foreach (var pattern in runePatterns)
+        {
+            if (normalizedQuery.Contains(pattern))
+            {
+                var runeType = normalizedQuery
+                    .Replace(" RUNE", "")
+                    .Replace("RUNE ", "")
+                    .Trim()
+                    .Replace(" ", "_");
+                    
+                if (!string.IsNullOrEmpty(runeType))
+                {
+                    // Rune tags end with RUNE_{type}, e.g., UNIQUE_RUNE_BLOOD, COMMON_RUNE_ICE
+                    var runeTagSuffix = $"RUNE_{runeType}";
+                    return a => a.Tag.EndsWith(runeTagSuffix) || 
+                                (a.Tag.Contains("RUNE") && a.ItemName.ToUpper().Contains(runeType));
+                }
+            }
+        }
+        
+        // Check for pet search patterns: "X pet", "pet X"
+        if (normalizedQuery.Contains(" PET") || normalizedQuery.StartsWith("PET "))
+        {
+            var petType = normalizedQuery
+                .Replace(" PET", "")
+                .Replace("PET ", "")
+                .Trim()
+                .Replace(" ", "_");
+                
+            if (!string.IsNullOrEmpty(petType))
+            {
+                // Pet tags are PET_{type}, e.g., PET_DRAGON
+                var petTag = $"PET_{petType}";
+                return a => a.Tag == petTag || 
+                            a.Tag.StartsWith($"{petTag}_") ||
+                            (a.Tag.StartsWith("PET_") && a.ItemName.ToUpper().Contains(petType));
+            }
+        }
+        
+        // Default: standard search by item name or tag
+        return a => a.ItemName.ToUpper().Contains(query) || a.Tag.Contains(query);
     }
 }

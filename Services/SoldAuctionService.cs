@@ -29,8 +29,7 @@ public class SoldAuctionService : BackgroundService
     {
         _logger.LogInformation("SoldAuctionService starting...");
         
-        // Initial cleanup: mark all past-end-date auctions as sold
-        await CleanupOldAuctions(stoppingToken);
+        // Note: Expired auction cleanup is handled by AuctionLifecycleService to avoid deadlocks
         
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -38,9 +37,6 @@ public class SoldAuctionService : BackgroundService
             {
                 // Check Hypixel's auctions_ended API for sold auctions
                 await CheckForSoldAuctions(stoppingToken);
-                
-                // Also cleanup any auctions that have passed their end date
-                await CleanupOldAuctions(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -48,35 +44,6 @@ public class SoldAuctionService : BackgroundService
             }
             
             await Task.Delay(_checkInterval, stoppingToken);
-        }
-    }
-
-    private async Task CleanupOldAuctions(CancellationToken stoppingToken)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var now = DateTime.UtcNow;
-            var oldAuctions = await dbContext.Auctions
-                .Where(a => a.End < now && a.Status == AuctionStatus.ACTIVE)
-                .ToListAsync(stoppingToken);
-
-            if (oldAuctions.Count > 0)
-            {
-                foreach (var auction in oldAuctions)
-                {
-                    auction.Status = AuctionStatus.EXPIRED;
-                }
-                
-                await dbContext.SaveChangesAsync(stoppingToken);
-                _logger.LogInformation("Marked {Count} old ended auctions as EXPIRED", oldAuctions.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during cleanup");
         }
     }
 
@@ -166,22 +133,33 @@ public class SoldAuctionService : BackgroundService
 
         if (auctionsToMark.Count > 0)
         {
-            // Build a dictionary for quick lookup of sold prices
-            var soldPrices = endedData.Auctions
-                .Where(a => a.AuctionId != null)
+            // Build a dictionary for quick lookup of ended info.
+            // Hypixel includes a unix ms timestamp; using it avoids skewing our price history windows.
+            var endedById = endedData.Auctions
+                .Where(a => !string.IsNullOrEmpty(a.AuctionId))
                 .ToDictionary(
-                    a => a.AuctionId!.Replace("-", "").ToLower(),
-                    a => a.Price);
+                    a => a.AuctionId!.Replace("-", "").ToLowerInvariant(),
+                    a => a);
 
             foreach (var auction in auctionsToMark)
             {
                 auction.Status = AuctionStatus.SOLD;
-                auction.SoldAt = DateTime.UtcNow;
-                
-                // Set the sold price from the API data
-                if (soldPrices.TryGetValue(auction.Uuid.ToLower(), out var soldPrice))
+
+                if (endedById.TryGetValue(auction.Uuid.ToLowerInvariant(), out var ended))
                 {
-                    auction.SoldPrice = soldPrice;
+                    auction.SoldPrice = ended.Price;
+                    try
+                    {
+                        auction.SoldAt = DateTimeOffset.FromUnixTimeMilliseconds(ended.Timestamp).UtcDateTime;
+                    }
+                    catch
+                    {
+                        auction.SoldAt = DateTime.UtcNow;
+                    }
+                }
+                else
+                {
+                    auction.SoldAt = DateTime.UtcNow;
                 }
             }
             

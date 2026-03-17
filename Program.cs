@@ -35,11 +35,16 @@ builder.Services.AddCors(options =>
 builder.Services.AddSignalR();
 builder.Services.AddMemoryCache(); // Required for ComponentValueService cashing
 
-// Add PostgreSQL DbContext
+// Add PostgreSQL DbContext with retry on transient failures (including deadlocks)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Host=localhost;Database=skyflipperdb;Username=postgres;Password=postgres";
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsqlOptions =>
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: new[] { "40P01" } // PostgreSQL deadlock error code
+        )));
 
 // Add HttpClient for Hypixel API
 builder.Services.AddHttpClient("HypixelApi", client =>

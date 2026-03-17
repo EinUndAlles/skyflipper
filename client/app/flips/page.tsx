@@ -265,7 +265,7 @@ export default function FlipsPage() {
                             {/* Stats */}
                             <div className="flex-grow-1">
                                 <div className="mb-3">
-                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Cost:</div>
+                                    <div style={{ color: '#aaaaaa', fontSize: '0.9rem', marginBottom: '2px' }}>Price:</div>
                                     <div style={{ color: '#ffaa00', fontSize: '1.1rem' }}>{formatCoins(flip.currentPrice)} Coins</div>
                                 </div>
 

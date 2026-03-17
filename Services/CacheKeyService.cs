@@ -511,6 +511,10 @@ public class CacheKeyService
             if (IgnoredNbtKeys.Contains(key))
                 continue;
 
+            // Skip rune levels to group runes by type across levels (reference behavior)
+            if (key.StartsWith("RUNE_"))
+                continue;
+
             // Skip gem-related keys if excluding gems
             if (excludeGems && IsGemstoneKey(key))
                 continue;

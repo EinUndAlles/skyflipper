@@ -224,6 +224,107 @@ public class PropertiesSelectorService
             }
         }
 
+        // Add Year property (New Year's Cake)
+        var year = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "year");
+        if (year?.ValueNumeric.HasValue == true)
+        {
+            properties.Add(new ItemProperty
+            {
+                Name = "Year",
+                Value = $"{(int)year.ValueNumeric.Value}",
+                Importance = 15,
+                Category = "Special"
+            });
+        }
+
+        // Add Captured Player property (Cake Souls)
+        var capturedPlayer = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "captured_player");
+        if (capturedPlayer?.ValueString != null)
+        {
+            properties.Add(new ItemProperty
+            {
+                Name = "Captured Player",
+                Value = capturedPlayer.ValueString,
+                Importance = 15,
+                Category = "Special"
+            });
+        }
+
+        // Add Edition property (limited edition items)
+        var edition = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "edition");
+        if (edition?.ValueNumeric.HasValue == true)
+        {
+            properties.Add(new ItemProperty
+            {
+                Name = "Edition",
+                Value = $"#{(int)edition.ValueNumeric.Value}",
+                Importance = 16,
+                Category = "Special"
+            });
+        }
+
+        // Add Potion properties
+        if (auction.Tag.StartsWith("POTION_"))
+        {
+            var potionLevel = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "level");
+            if (potionLevel?.ValueNumeric.HasValue == true)
+            {
+                properties.Add(new ItemProperty
+                {
+                    Name = "Potion Level",
+                    Value = $"{(int)potionLevel.ValueNumeric.Value}",
+                    Importance = 14,
+                    Category = "Potion"
+                });
+            }
+
+            var splash = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "splash");
+            if (splash?.ValueNumeric.HasValue == true && splash.ValueNumeric.Value > 0)
+            {
+                properties.Add(new ItemProperty
+                {
+                    Name = "Splash",
+                    Value = "✓",
+                    Importance = 12,
+                    Category = "Potion"
+                });
+            }
+
+            var enhanced = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "enhanced");
+            if (enhanced != null)
+            {
+                properties.Add(new ItemProperty
+                {
+                    Name = "Enhanced",
+                    Value = "✓",
+                    Importance = 12,
+                    Category = "Potion"
+                });
+            }
+        }
+
+        // Add Rune level property
+        if (auction.Tag.Contains("RUNE_"))
+        {
+            // Rune levels are stored with keys like "RUNE_BLOOD", "RUNE_ICE" where value is the level
+            var runeLookups = auction.NBTLookups.Where(n => 
+                n.NBTKey?.KeyName != null && 
+                n.NBTKey.KeyName.StartsWith("RUNE_") && 
+                n.ValueNumeric.HasValue);
+            
+            foreach (var rune in runeLookups)
+            {
+                properties.Add(new ItemProperty
+                {
+                    Name = "Rune Level",
+                    Value = $"{(int)rune.ValueNumeric!.Value}",
+                    Importance = 14,
+                    Category = "Rune"
+                });
+                break; // Only show one rune level (items typically have one rune)
+            }
+        }
+
         // Add enchantments
         var enchantmentProperties = GetEnchantmentProperties(auction);
         properties.AddRange(enchantmentProperties);
