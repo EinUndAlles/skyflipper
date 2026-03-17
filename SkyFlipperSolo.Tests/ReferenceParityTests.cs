@@ -639,6 +639,77 @@ public class ReferenceParityTests
         Assert.That(result.Select(a => a.Uuid).ToList(), Does.Contain("d3"));
     }
 
+    [Test]
+    public async Task EvaluateBinAuction_AppliesHitCountDecayParity()
+    {
+        var target = BuildValuationTargetAuction("flip-hit", startingBid: 8_000_000, highestBidAmount: 8_000_000, count: 1, bin: true);
+        var references = BuildReferenceSet("hit", new[] { 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L }, true);
+
+        var baselineService = CreateSeededReferenceAuctionService(target, references);
+        var decayedService = CreateSeededReferenceAuctionService(target, references);
+
+        var baseline = await baselineService.EvaluateBinAuctionAsync(target, 0, CancellationToken.None);
+        var decayed = await decayedService.EvaluateBinAuctionAsync(target, 4, CancellationToken.None);
+
+        Assert.That(baseline, Is.Not.Null);
+        Assert.That(decayed, Is.Not.Null);
+        Assert.That(decayed!.TargetPrice, Is.LessThan(baseline!.TargetPrice));
+        Assert.That(decayed.EstimatedProfit, Is.LessThan(baseline.EstimatedProfit));
+    }
+
+    [Test]
+    public async Task EvaluateBinAuction_HalvesMedianWhenTooManyNonBinReferences()
+    {
+        var target = BuildValuationTargetAuction("flip-nonbin", startingBid: 5_000_000, highestBidAmount: 5_000_000, count: 1, bin: true);
+        var mostlyBinRefs = BuildReferenceSet("bin", new[] { 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L }, true);
+        var mostlyAuctionRefs = BuildReferenceSet("auc", new[] { 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L, 12_000_000L }, false);
+        mostlyAuctionRefs[0].Bin = true;
+        mostlyAuctionRefs[1].Bin = true;
+
+        var binService = CreateSeededReferenceAuctionService(target, mostlyBinRefs);
+        var auctionHeavyService = CreateSeededReferenceAuctionService(target, mostlyAuctionRefs);
+
+        var baseline = await binService.EvaluateBinAuctionAsync(target, 0, CancellationToken.None);
+        var halved = await auctionHeavyService.EvaluateBinAuctionAsync(target, 0, CancellationToken.None);
+
+        Assert.That(baseline, Is.Not.Null);
+        Assert.That(halved, Is.Not.Null);
+        Assert.That(halved!.TargetPrice, Is.LessThan(baseline!.TargetPrice));
+        Assert.That(halved.EstimatedProfit, Is.LessThan(baseline.EstimatedProfit));
+    }
+
+    [Test]
+    public async Task EvaluateBinAuction_AppliesExtraLowValueMarginRule()
+    {
+        var target = BuildValuationTargetAuction("flip-lowvalue", startingBid: 780_000, highestBidAmount: 780_000, count: 1, bin: true);
+        var references = BuildReferenceSet("low", new[] { 900_000L, 900_000L, 900_000L, 900_000L, 900_000L, 900_000L, 900_000L, 900_000L }, true);
+        var service = CreateSeededReferenceAuctionService(target, references);
+
+        var result = await service.EvaluateBinAuctionAsync(target, 0, CancellationToken.None);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task EvaluateBinAuction_AppliesStackCountPenalty()
+    {
+        var singleTarget = BuildValuationTargetAuction("flip-single", startingBid: 20_000_000, highestBidAmount: 20_000_000, count: 1, bin: true);
+        var stackTarget = BuildValuationTargetAuction("flip-stack", startingBid: 40_000_000, highestBidAmount: 40_000_000, count: 2, bin: true);
+        var singleRefs = BuildReferenceSet("single", new[] { 30_000_000L, 30_000_000L, 30_000_000L, 30_000_000L, 30_000_000L, 30_000_000L, 30_000_000L, 30_000_000L }, true);
+        var stackRefs = BuildReferenceSet("stack", new[] { 60_000_000L, 60_000_000L, 60_000_000L, 60_000_000L, 60_000_000L, 60_000_000L, 60_000_000L, 60_000_000L }, true, count: 2);
+
+        var singleService = CreateSeededReferenceAuctionService(singleTarget, singleRefs);
+        var stackService = CreateSeededReferenceAuctionService(stackTarget, stackRefs);
+
+        var single = await singleService.EvaluateBinAuctionAsync(singleTarget, 0, CancellationToken.None);
+        var stack = await stackService.EvaluateBinAuctionAsync(stackTarget, 0, CancellationToken.None);
+
+        Assert.That(single, Is.Not.Null);
+        Assert.That(stack, Is.Not.Null);
+        Assert.That(stack!.TargetPrice, Is.LessThan(single!.TargetPrice * 2));
+        Assert.That(stack.ProfitMarginPercent, Is.LessThan(single.ProfitMarginPercent));
+    }
+
     private static Auction BuildParityAuction(string uuid, string itemName, string sellerId, string itemUid, string bidderId)
     {
         var referenceEnd = DateTime.UtcNow.AddMinutes(-20);
@@ -699,6 +770,60 @@ public class ReferenceParityTests
         return auction;
     }
 
+    private static Auction BuildValuationTargetAuction(string uuid, long startingBid, long highestBidAmount, int count, bool bin)
+    {
+        return new Auction
+        {
+            Uuid = uuid,
+            Tag = "HYPERION",
+            ItemName = "Hyperion",
+            Tier = Tier.MYTHIC,
+            Category = Category.WEAPON,
+            Count = count,
+            StartingBid = startingBid,
+            HighestBidAmount = highestBidAmount,
+            Bin = bin,
+            Start = DateTime.UtcNow.AddMinutes(-5),
+            End = DateTime.UtcNow.AddMinutes(30),
+            AuctioneerId = "target-seller",
+            Reforge = Reforge.Withered,
+            ItemCreatedAt = DateTime.UtcNow.AddDays(-10),
+            FlatenedNBTJson = """{}"""
+        };
+    }
+
+    private static List<Auction> BuildReferenceSet(string prefix, IReadOnlyList<long> prices, bool bin, int count = 1)
+    {
+        return prices.Select((price, i) => new Auction
+        {
+            Uuid = $"{prefix}-{i}",
+            Tag = "HYPERION",
+            ItemName = "Hyperion",
+            Tier = Tier.MYTHIC,
+            Category = Category.WEAPON,
+            Count = count,
+            StartingBid = price,
+            HighestBidAmount = price,
+            Bin = bin,
+            Start = DateTime.UtcNow.AddHours(-3),
+            End = DateTime.UtcNow.AddHours(-2).AddMinutes(i),
+            AuctioneerId = $"{prefix}-seller-{i}",
+            Reforge = Reforge.Withered,
+            ItemCreatedAt = DateTime.UtcNow.AddDays(-10),
+            ItemUid = $"{prefix}-uid-{i}",
+            FlatenedNBTJson = $$"""{"uid":"{{prefix}}-uid-{{i}}"}"""
+        }).Select((auction, i) =>
+        {
+            auction.Bids.Add(new BidRecord
+            {
+                BidderId = $"{prefix}-buyer-{i}",
+                Amount = auction.HighestBidAmount,
+                Timestamp = auction.End.AddMinutes(-1)
+            });
+            return auction;
+        }).ToList();
+    }
+
     private static Enchantment CreateEnchant(EnchantmentType type, byte level) => new(type, level);
 
     private static CacheKeyService CreateCacheKeyService()
@@ -718,6 +843,80 @@ public class ReferenceParityTests
             CreateCacheKeyService(),
             componentValueService,
             NullLogger<ReferenceAuctionService>.Instance);
+    }
+
+    private static ReferenceAuctionService CreateSeededReferenceAuctionService(Auction target, List<Auction> references)
+    {
+        var dbName = Guid.NewGuid().ToString("N");
+        var dbRoot = new InMemoryDatabaseRoot();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(dbName, dbRoot)
+            .Options;
+
+        using (var context = new AppDbContext(options))
+        {
+            context.Auctions.Add(CloneAuction(target));
+            context.Auctions.AddRange(references.Select(CloneAuction));
+            context.SaveChanges();
+        }
+
+        var provider = new ServiceCollection()
+            .AddSingleton(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName, dbRoot).Options)
+            .AddScoped(_ => new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(dbName, dbRoot).Options))
+            .BuildServiceProvider();
+
+        return CreateReferenceAuctionService(provider.GetRequiredService<IServiceScopeFactory>());
+    }
+
+    private static Auction CloneAuction(Auction source)
+    {
+        var clone = new Auction
+        {
+            Uuid = source.Uuid,
+            UId = source.UId,
+            Tag = source.Tag,
+            ItemName = source.ItemName,
+            Tier = source.Tier,
+            Category = source.Category,
+            Count = source.Count,
+            StartingBid = source.StartingBid,
+            HighestBidAmount = source.HighestBidAmount,
+            Bin = source.Bin,
+            Start = source.Start,
+            End = source.End,
+            AuctioneerId = source.AuctioneerId,
+            Reforge = source.Reforge,
+            ItemCreatedAt = source.ItemCreatedAt,
+            ItemUid = source.ItemUid,
+            FlatenedNBTJson = source.FlatenedNBTJson
+        };
+
+        foreach (var bid in source.Bids)
+        {
+            clone.Bids.Add(new BidRecord
+            {
+                BidderId = bid.BidderId,
+                Amount = bid.Amount,
+                Timestamp = bid.Timestamp
+            });
+        }
+
+        foreach (var enchantment in source.Enchantments)
+        {
+            clone.Enchantments.Add(new Enchantment(enchantment.Type, enchantment.Level));
+        }
+
+        foreach (var lookup in source.NBTLookups)
+        {
+            clone.NBTLookups.Add(new NBTLookup
+            {
+                Key = lookup.Key,
+                ValueString = lookup.ValueString,
+                ValueNumeric = lookup.ValueNumeric
+            });
+        }
+
+        return clone;
     }
 
     private sealed class StaticHttpClientFactory : IHttpClientFactory
