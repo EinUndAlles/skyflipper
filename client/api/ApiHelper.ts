@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Auction, AuctionWithProperties, Stats, TagCount } from '../types';
-import { ItemPrice, DateRange, ItemFilter } from '../types/priceHistory';
+import { ItemPrice, DateRange, ItemFilter, PriceHistoryResponse } from '../types/priceHistory';
 
 const API_BASE_URL = 'http://localhost:5135/api';
 
@@ -121,13 +121,13 @@ export const api = {
             });
         }
         
-        const response = await axios.get<ItemPrice[]>(
+        const response = await axios.get<PriceHistoryResponse>(
             `${API_BASE_URL}/auctions/item/price/${itemTag}/history/${fetchSpan}`,
             { params }
         );
         
         // Convert time strings to Date objects
-        return response.data.map(item => ({
+        return response.data.prices.map(item => ({
             ...item,
             time: new Date(item.time)
         }));
