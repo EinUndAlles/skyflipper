@@ -5,7 +5,7 @@ namespace SkyFlipperSolo.Services;
 
 /// <summary>
 /// Background service that fetches auctions from the Hypixel API.
-/// Features: Tracks processed auction IDs to skip duplicates, delays between page batches.
+/// Features: Tracks processed auction IDs per fetch cycle to skip duplicate pages, delays between page batches.
 /// </summary>
 public class AuctionFetcherService : BackgroundService
 {
@@ -17,7 +17,6 @@ public class AuctionFetcherService : BackgroundService
 
     private DateTime _lastApiUpdate = DateTime.MinValue;
     private int _fetchIntervalSeconds;
-    private readonly HashSet<string> _processedAuctionIds = new(); // Track processed UUIDs
     private const int DelayBetweenPageBatchesMs = 250; // Delay between batches of 5 pages
 
     public AuctionFetcherService(
@@ -37,7 +36,7 @@ public class AuctionFetcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("AuctionFetcherService starting (duplicate tracking enabled)...");
+        _logger.LogInformation("AuctionFetcherService starting (cycle-scoped duplicate tracking enabled)...");
 
         // Wait a bit for the app to fully start
         await Task.Delay(2000, stoppingToken);
@@ -89,19 +88,12 @@ public class AuctionFetcherService : BackgroundService
         var totalPages = firstPage.TotalPages;
         var totalAuctions = 0;
         var skippedDuplicates = 0;
+        var processedAuctionIds = new HashSet<string>(StringComparer.Ordinal);
 
         _logger.LogInformation("Fetching {Pages} pages, {Total} total auctions...", totalPages, firstPage.TotalAuctions);
 
-        // Clear old processed IDs (auctions from previous API update cycle)
-        // Keep a sliding window to handle auctions that span multiple updates
-        if (_processedAuctionIds.Count > 500000) // Limit memory usage
-        {
-            _processedAuctionIds.Clear();
-            _logger.LogDebug("Cleared processed auction ID cache (was over 500k)");
-        }
-
         // Process first page
-        var (processed, skipped) = await ProcessPage(firstPage, stoppingToken);
+        var (processed, skipped) = await ProcessPage(firstPage, processedAuctionIds, stoppingToken);
         totalAuctions += processed;
         skippedDuplicates += skipped;
 
@@ -112,7 +104,7 @@ public class AuctionFetcherService : BackgroundService
             if (stoppingToken.IsCancellationRequested) break;
 
             var tasks = Enumerable.Range(i, Math.Min(batchSize, totalPages - i))
-                .Select(page => FetchAndProcessPage(client, page, stoppingToken))
+                .Select(page => FetchAndProcessPage(client, page, processedAuctionIds, stoppingToken))
                 .ToList();
 
             var results = await Task.WhenAll(tasks);
@@ -134,12 +126,13 @@ public class AuctionFetcherService : BackgroundService
     private async Task<(int processed, int skipped)> FetchAndProcessPage(
         HttpClient client, 
         int page, 
+        HashSet<string> processedAuctionIds,
         CancellationToken stoppingToken)
     {
         var pageData = await FetchPage(client, page, stoppingToken);
         if (pageData == null) return (0, 0);
 
-        return await ProcessPage(pageData, stoppingToken);
+        return await ProcessPage(pageData, processedAuctionIds, stoppingToken);
     }
 
     private async Task<AuctionPageResponse?> FetchPage(HttpClient client, int page, CancellationToken stoppingToken)
@@ -168,6 +161,7 @@ public class AuctionFetcherService : BackgroundService
 
     private async Task<(int processed, int skipped)> ProcessPage(
         AuctionPageResponse page, 
+        HashSet<string> processedAuctionIds,
         CancellationToken stoppingToken)
     {
         int processed = 0;
@@ -183,14 +177,11 @@ public class AuctionFetcherService : BackgroundService
             }
 
             // Skip already processed auctions (duplicates from same API update)
-            if (_processedAuctionIds.Contains(auction.Uuid))
+            if (!processedAuctionIds.Add(auction.Uuid))
             {
                 skipped++;
                 continue;
             }
-
-            // Mark as processed
-            _processedAuctionIds.Add(auction.Uuid);
 
             // Push to channel for processing
             await _auctionChannel.Writer.WriteAsync(auction, stoppingToken);
