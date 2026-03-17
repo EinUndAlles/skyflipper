@@ -71,13 +71,29 @@ export default function FlipsPage() {
     // Handle full update
     const handleFlipsUpdated = useCallback((updatedFlips: FlipNotification[]) => {
         setFlips(prev => {
-            const soldOrExpired = prev.filter(f => f.status && f.status !== 'ACTIVE');
-            const mergedActive = updatedFlips.map(flip => {
-                const existing = prev.find(f => f.auctionUuid === flip.auctionUuid);
-                return { ...existing, ...flip, status: 'ACTIVE' as const };
+            const byUuid = new Map<string, FlipNotification>();
+
+            for (const existing of prev) {
+                byUuid.set(existing.auctionUuid, existing);
+            }
+
+            for (const incoming of updatedFlips) {
+                const existing = byUuid.get(incoming.auctionUuid);
+                byUuid.set(incoming.auctionUuid, {
+                    ...existing,
+                    ...incoming,
+                    status: existing?.status && existing.status !== 'ACTIVE' ? existing.status : 'ACTIVE'
+                });
+            }
+
+            return Array.from(byUuid.values()).sort((a, b) => {
+                const aClosed = a.status && a.status !== 'ACTIVE' ? 1 : 0;
+                const bClosed = b.status && b.status !== 'ACTIVE' ? 1 : 0;
+                if (aClosed !== bClosed) {
+                    return aClosed - bClosed;
+                }
+                return b.estimatedProfit - a.estimatedProfit;
             });
-            const dedupedHistorical = soldOrExpired.filter(old => !mergedActive.some(active => active.auctionUuid === old.auctionUuid));
-            return [...mergedActive, ...dedupedHistorical].sort((a, b) => b.estimatedProfit - a.estimatedProfit);
         });
     }, []);
 
