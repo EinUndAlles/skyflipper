@@ -1,0 +1,47 @@
+---
+description: Document major failure points for SkyFlipperSolo and their resolutions.
+globs:
+alwaysApply: false
+---
+
+# Error Documentation - SkyFlipperSolo
+
+**Project:** SkyFlipperSolo
+**Last Updated:** 2026-03-19
+
+## Known Issues
+
+### 1. Potential `/flips` Hydration Warnings
+**Status:** Investigate if still occurring.
+**Context:** Frontend `client/app/flips/page.tsx` depends on browser APIs (Notification, window). Some hydration warnings were mitigated with mounted guard.
+**Possible Fix:** Wrap route with no-SSR client wrapper if warnings persist.
+
+### 2. Low-Data Reference Sets
+**Status:** Expected in fresh DB.
+**Context:** Reference-auction engine needs enough sold history; low volume items may produce weak references early.
+**Mitigation:** Let ingestion run longer; add real-data fixtures.
+
+### 3. Enchant List Gaps (P0)
+**Status:** Resolved — `CacheKeyService.RelevantEnchants` aligned to `dev/Data/Flipper/Constants.cs`.
+**Context:** Items with missing enchants (e.g., `smoldering`, `quantum`, `replenish`, `critical(7)`) would not match properly.
+**Fix:** Copied missing entries and added missing enum values in `Models/Enchantment.cs`.
+
+### 4. CacheKey Format Divergence (P0)
+**Status:** Resolved — Raw `String.Concat(Dictionary)` concatenation restored.
+**Context:** Sorted keys + range normalization prevented cross-compatibility with Coflnet AveragePrice data.
+**Fix:** BuildNbtString now concatenates raw flattened NBT and only filters ignored keys (and gems when requested).
+
+### 5. SQL-Level NBT Filtering Missing (P1)
+**Status:** Open — Reference builds IQueryable with NBTLookup joins; we fetch 8x limit and filter in-memory.
+**Context:** Much slower at scale (>100k sold auctions). Reference uses `AddNBTSelect`/`AddNbtRangeSelect` for DB-level filtering.
+**Fix:** Rewrite GetSelect to use IQueryable NBTLookup filtering instead of in-memory.
+
+### 6. AveragePrice.CacheKey Length (P1)
+**Status:** Open — Column is `varchar(200)` but range-normalized cache keys can exceed 200 chars.
+**Context:** Already fixed FlipHitCount.CacheKey to `text`. AveragePrice.CacheKey needs same treatment.
+**Fix:** Create migration to widen to `text`.
+
+### 7. IMemoryCache Reference Sets (P1)
+**Status:** Expected limitation.
+**Context:** Reference sets lost on restart; not shared across instances. Coflnet uses Redis with 2h TTL.
+**Fix:** Consider adding Redis-backed IDistributedCache.

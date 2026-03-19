@@ -170,8 +170,19 @@ public class CacheKeyService
         { EnchantmentType.pristine, 1 },
         { EnchantmentType.overload, 2 },
         { EnchantmentType.smite, 7 },
+        { EnchantmentType.critical, 7 },
         { EnchantmentType.giant_killer, 7 },
         { EnchantmentType.luck, 7 },
+        { EnchantmentType.angler, 7 },
+        { EnchantmentType.spiked_hook, 7 },
+        { EnchantmentType.caster, 7 },
+        { EnchantmentType.magnet, 7 },
+        { EnchantmentType.luck_of_the_sea, 7 },
+        { EnchantmentType.thunderlord, 7 },
+        { EnchantmentType.lethality, 7 },
+        { EnchantmentType.thunderbolt, 8 },
+        { EnchantmentType.infinite_quiver, 11 },
+        { EnchantmentType.feather_falling, 11 },
         { EnchantmentType.compact, 1 },
         { EnchantmentType.counter_strike, 5 },
         { EnchantmentType.experience, 5 },
@@ -189,6 +200,7 @@ public class CacheKeyService
         { EnchantmentType.ultimate_no_pain_no_gain, 5 },
         { EnchantmentType.ultimate_rend, 3 },
         { EnchantmentType.ultimate_swarm, 3 },
+        { EnchantmentType.ultimate_wise, 4 },
         { EnchantmentType.ultimate_wisdom, 3 },
         { EnchantmentType.ultimate_the_one, 4 },
         { EnchantmentType.ultimate_chimera, 1 },
@@ -200,6 +212,7 @@ public class CacheKeyService
         { EnchantmentType.ultimate_inferno, 1 },
         { EnchantmentType.ultimate_combo, 1 },
         { EnchantmentType.ultimate_one_for_all, 1 },
+        { EnchantmentType.ultimate_refrigerate, 1 },
         { EnchantmentType.ultimate_reiterate, 1 },
         { EnchantmentType.ultimate_soul_eater, 1 },
         
@@ -210,6 +223,31 @@ public class CacheKeyService
         { EnchantmentType.transylvanian, 5 },
         { EnchantmentType.true_protection, 1 },
         { EnchantmentType.sugar_rush, 3 },
+        { EnchantmentType.smoldering, 1 },
+        { EnchantmentType.strong_mana, 5 },
+        { EnchantmentType.hardened_mana, 5 },
+        { EnchantmentType.mana_vampire, 4 },
+        { EnchantmentType.ferocious_mana, 2 },
+        { EnchantmentType.charm, 4 },
+        { EnchantmentType.cayenne, 5 },
+        { EnchantmentType.green_thumb, 1 },
+        { EnchantmentType.prosperity, 1 },
+        { EnchantmentType.tabasco, 3 },
+        { EnchantmentType.fire_aspect, 3 },
+        { EnchantmentType.pesterminator, 1 },
+        { EnchantmentType.paleontologist, 1 },
+        { EnchantmentType.ice_cold, 1 },
+        { EnchantmentType.toxophilite, 1 },
+        { EnchantmentType.lapidary, 2 },
+        { EnchantmentType.replenish, 1 },
+        { EnchantmentType.quick_bite, 1 },
+        { EnchantmentType.absorb, 1 },
+        { EnchantmentType.forest_pledge, 4 },
+        { EnchantmentType.raspiration, 4 },
+        { EnchantmentType.scuba, 3 },
+        { EnchantmentType.delicate, 5 },
+        { EnchantmentType.quantum, 5 },
+        { EnchantmentType.small_brain, 5 },
         
         // Farming enchants
         { EnchantmentType.turbo_cactus, 5 },
@@ -242,9 +280,7 @@ public class CacheKeyService
     /// 
     /// This produces output like: [key1, value1][key2, value2] (Dictionary KeyValuePair ToString format)
     /// 
-    /// ENHANCEMENTS for matching:
-    /// - Pet levels are normalized to ranges (e.g., Lvl 95-99 → Lvl 9_)
-    /// - NBT values like edition, kills, winning_bid use range matching
+    /// Note: Cache key uses raw flattened NBT concatenation to match reference.
     /// </summary>
     public string GeneratePriceCacheKey(Auction auction)
     {
@@ -452,10 +488,7 @@ public class CacheKeyService
     /// KeyValuePair.ToString() produces: [key, value]
     /// So the output looks like: [dungeon_item_level, 5][rarity_upgrades, 1]...
     /// 
-    /// ENHANCEMENTS for matching:
-    /// - Range values (Midas, edition, kills) are normalized to range buckets
-    /// - Pet held items use ShouldPetItemMatch logic
-    /// - Special handling for captured_player (Cake Soul)
+    /// Note: Cache key uses raw flattened NBT concatenation to match reference.
     /// </summary>
     private string GetFlattenedNbtString(Auction auction, bool excludeGems = false)
     {
@@ -496,153 +529,19 @@ public class CacheKeyService
     }
 
     /// <summary>
-    /// Builds the NBT portion of cache key with range normalization and special handling.
+    /// Builds the NBT portion of cache key using raw concatenation.
+    /// Matches reference: String.Concat(auction.FlatenedNBT.Where(d => !ignoredNbt.Contains(d.Key))).
     /// </summary>
     private string BuildNbtString(Dictionary<string, string> flatNbt, Auction auction, bool excludeGems)
     {
-        var nbtParts = new List<string>();
+        var nbtPairs = flatNbt.Where(kvp => !IgnoredNbtKeys.Contains(kvp.Key));
 
-        foreach (var kvp in flatNbt.OrderBy(k => k.Key))
+        if (excludeGems)
         {
-            var key = kvp.Key;
-            var value = kvp.Value;
-
-            // Skip ignored keys
-            if (IgnoredNbtKeys.Contains(key))
-                continue;
-
-            // Skip rune levels to group runes by type across levels (reference behavior)
-            if (key.StartsWith("RUNE_"))
-                continue;
-
-            // Skip gem-related keys if excluding gems
-            if (excludeGems && IsGemstoneKey(key))
-                continue;
-
-            // Handle special keys
-            
-            // Pet held item - reference lines 787-806 (AddPetItemSelect)
-            if (key == "heldItem")
-            {
-                if (ShouldPetItemMatch(flatNbt, auction.StartingBid))
-                {
-                    nbtParts.Add($"[{key}, {value}]");
-                }
-                // If not matching, we exclude it entirely (reference excludes valuable pet items)
-                continue;
-            }
-
-            // Pet candy handling - reference AddCandySelect() lines 850-862
-            // Special logic: max exp pets with skins compare by skin absence, not candy
-            // Otherwise: binary check (candy > 0 vs candy == 0)
-            if (key == "candyUsed")
-            {
-                var candyValue = GetCandyCacheValue(flatNbt, value);
-                if (candyValue != null)
-                {
-                    nbtParts.Add($"[{key}, {candyValue}]");
-                }
-                continue;
-            }
-
-            // Cake Soul - captured_player - reference line 671
-            if (key == "captured_player")
-            {
-                nbtParts.Add($"[{key}, {value}]");
-                continue;
-            }
-
-            // Cosmetic NBT keys - reference lines 693-703
-            // MUSIC, ENCHANT, DRAGON, TIDAL, party_hat_emoji
-            if (CosmeticNbtKeys.Contains(key))
-            {
-                nbtParts.Add($"[{key}, {value}]");
-                continue;
-            }
-
-            // Armor color/dye matching - reference lines 730-734
-            // IsArmour checks: _CHESTPLATE, _BOOTS, _HELMET, _LEGGINGS
-            if (key == "color" || key == "dye_item")
-            {
-                if (IsArmor(auction.Tag) || flatNbt.ContainsKey("color"))
-                {
-                    nbtParts.Add($"[{key}, {value}]");
-                }
-                continue;
-            }
-
-            // Drill parts matching - reference lines 714-719
-            if (DrillPartKeys.Contains(key) && auction.Tag.Contains("_DRILL"))
-            {
-                nbtParts.Add($"[{key}, {value}]");
-                continue;
-            }
-
-            // Gemstone slots - reference lines 748-758
-            // unlocked_slots and gemstone_slots affect item value
-            // These are included in cache key for proper matching
-            if (key == "unlocked_slots" || key == "gemstone_slots")
-            {
-                nbtParts.Add($"[{key}, {value}]");
-                continue;
-            }
-
-            // Attribute keys with weighted matching - reference lines 67-83, 708-711
-            if (AttributeKeys.Contains(key))
-            {
-                // Check if this is a shard attribute with specific weighting
-                if (ShardAttributes.TryGetValue(key, out var weight))
-                {
-                    // Higher weight = narrower range (more exact matching needed)
-                    // Weight 3 = exact, Weight 2 = 20% range, Weight 1 = 40% range
-                    var rangePercent = weight switch
-                    {
-                        3 => 10,   // Narrow range for valuable attributes
-                        2 => 20,   // Medium range
-                        _ => 40    // Broader range for common attributes
-                    };
-                    var normalizedValue = NormalizeToRange(value, 0, rangePercent);
-                    nbtParts.Add($"[{key}, {normalizedValue}]");
-                }
-                else
-                {
-                    // Standard attribute - include directly
-                    nbtParts.Add($"[{key}, {value}]");
-                }
-                continue;
-            }
-
-            // Special item-specific NBT keys - reference lines 676-704
-            // These keys are critical for specific items (Necrons Ladder, Dianas Bookshelf, AOTV/AOTE)
-            if (SpecialItemNbtKeys.TryGetValue(auction.Tag, out var requiredKeys) && requiredKeys.Contains(key))
-            {
-                // Always include these keys exactly for their specific items
-                nbtParts.Add($"[{key}, {value}]");
-                continue;
-            }
-
-            // Range-based keys (Midas, edition, kills, seconds_held)
-            if (NbtRangeKeys.TryGetValue(key, out var rangeConfig))
-            {
-                var normalizedValue = NormalizeToRange(value, rangeConfig.RangeSize, rangeConfig.PercentIncrease);
-                nbtParts.Add($"[{key}, {normalizedValue}]");
-                continue;
-            }
-
-            // Keys ending with _kills need range matching - reference lines 736-746
-            if (KillsKeyPattern.IsMatch(key) && long.TryParse(value, out var killsVal))
-            {
-                // Reference uses 20% range (val * 0.8 to val * 1.2)
-                var rangeVal = NormalizeToRange(value, 0, 20);
-                nbtParts.Add($"[{key}, {rangeVal}]");
-                continue;
-            }
-
-            // Standard key-value pair
-            nbtParts.Add($"[{key}, {value}]");
+            nbtPairs = nbtPairs.Where(kvp => !IsGemstoneKey(kvp.Key));
         }
 
-        return string.Concat(nbtParts);
+        return string.Concat(nbtPairs);
     }
 
     /// <summary>

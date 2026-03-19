@@ -43,6 +43,7 @@ public enum EnchantmentType
     smite,
     bane_of_arthropods,
     first_strike,
+    critical,
     giant_killer,
     ender_slayer,
     cubism,
@@ -91,6 +92,7 @@ public enum EnchantmentType
     growth,
     thorns,
     respiration,
+    raspiration,
     depth_strider,
     aqua_affinity,
     feather_falling,
@@ -106,6 +108,15 @@ public enum EnchantmentType
     blazing_resistance,
     big_brain,
     ender,
+    smoldering,
+    strong_mana,
+    hardened_mana,
+    mana_vampire,
+    ferocious_mana,
+    charm,
+    cayenne,
+    small_brain,
+    scuba,
     
     // Tools
     efficiency,
@@ -128,6 +139,19 @@ public enum EnchantmentType
     turbo_wheat,
     dedication,
     pristine,
+    green_thumb,
+    prosperity,
+    tabasco,
+    pesterminator,
+    paleontologist,
+    ice_cold,
+    toxophilite,
+    lapidary,
+    replenish,
+    absorb,
+    forest_pledge,
+    delicate,
+    quantum,
     
     // Fishing
     angler,
@@ -138,6 +162,7 @@ public enum EnchantmentType
     lure,
     magnet,
     spiked_hook,
+    quick_bite,
     
     // Ultimate enchants
     ultimate_bank,
@@ -153,10 +178,12 @@ public enum EnchantmentType
     ultimate_legion,
     ultimate_no_pain_no_gain,
     ultimate_one_for_all,
+    ultimate_refrigerate,
     ultimate_reiterate,
     ultimate_rend,
     ultimate_soul_eater,
     ultimate_swarm,
     ultimate_the_one,
+    ultimate_wise,
     ultimate_wisdom
 }

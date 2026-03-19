@@ -1,0 +1,64 @@
+---
+description: Project-specific patterns and intelligence.
+globs:
+alwaysApply: false
+---
+
+# Lessons Learned - SkyFlipperSolo
+
+**Project:** SkyFlipperSolo
+**Last Updated:** 2026-03-19
+
+## 1. Parity First
+- Always verify cache key, NBT, and valuation changes against Coflnet reference code before implementation.
+- Primary references: `../dev/Data/Flipper/Constants.cs`, `../SkyFlipper/Flipper/FlippingEngine.cs`
+- See `FULL_PARITY_REVIEW.md` for the comprehensive gap analysis.
+
+## 2. Sold Auctions Must Use SoldAt
+- Price aggregation and reference selection should use `SoldAt` for SOLD auctions, not `End`.
+
+## 3. Avoid Direct Migration Edits
+- Always add new EF migrations instead of editing `Migrations/` manually.
+
+## 4. Enchant List Must Match Constants.cs
+- `CacheKeyService.RelevantEnchants` must mirror `dev/Data/Flipper/Constants.cs:RelevantEnchants`.
+- Current gap: ~35 enchants missing. This is a P0 accuracy issue.
+- When adding enchants, include both the type and minimum level.
+
+## 11. Enchantment Enum Must Cover RelevantEnchants
+- If a relevant enchant is missing from `Models/Enchantment.cs`, it cannot be added to `RelevantEnchants`.
+- Always update the enum first, then the dictionary.
+
+## 5. CacheKey Format Matters
+- Reference uses `String.Concat(auction.FlatenedNBT.Where(...))` which does NOT sort keys.
+- Our version sorts keys alphabetically + applies range normalization.
+- This is an improvement for matching but breaks cross-compatibility with Coflnet data.
+- Decide: alignment for data import vs. better matching behavior.
+
+## 12. CacheKey Parity Overrides Matching Enhancements
+- When cross-compatibility is required, remove range normalization and keep raw concatenation order.
+- Any matching enhancements must be optional or isolated from parity cache keys.
+
+## 6. Reference Uses SQL-Level Filtering
+- `FlippingEngine.cs:GetSelect` builds IQueryable with `AddNBTSelect`/`AddNbtRangeSelect` that filter at DB level via NBTLookup joins.
+- Our `ReferenceAuctionService:GetSelect` fetches 8x the limit and filters in-memory.
+- This is a major performance difference at scale.
+
+## 7. SelectBestEnchant Uses WorthOrder
+- Reference has a 100+ entry `WorthOrder`/`WorthOrderLevels` priority list in Constants.cs.
+- Our version uses `OrderByDescending(Level).ThenBy(Type)`.
+- In reduced-mode matching, this can select a different "best" enchant, causing reference set divergence.
+
+## 8. ShouldPetItemMatch Requires exp Guard
+- Reference checks `flatNbt.ContainsKey("exp")` as a guard before matching pet items.
+- Our version doesn't. Fix needed.
+
+## 9. Coflnet Ecosystem Is 14+ Microservices
+- Don't assume one repo contains the whole truth.
+- Key projects: dev, SkyFlipper, SkyUpdater, SkyIndexer, SkyApi, SkyFilter, SkyCommands, hypixel-react.
+- See `FULL_PARITY_REVIEW.md` section A for complete inventory.
+
+## 10. Parity Status Is ~85%, Not 99.5%
+- REMAINING_FEATURES.md claims 99.5% but the full review found P0 gaps.
+- Flip-detection engine is strong (~88%). Infrastructure and API breadth are the main gaps.
+- See `FULL_PARITY_REVIEW.md` section D for scorecard.
