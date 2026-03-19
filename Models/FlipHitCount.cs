@@ -14,7 +14,6 @@ public class FlipHitCount
     /// <summary>
     /// The cache key representing the item type.
     /// </summary>
-    [MaxLength(200)]
     public string CacheKey { get; set; } = string.Empty;
 
     /// <summary>
