@@ -78,6 +78,7 @@ public class AuctionLifecycleService : BackgroundService
             .Where(a => a.Status == AuctionStatus.ACTIVE &&
                        a.End < now.AddHours(-1) && // Ended more than 1 hour ago
                        a.Bin == true) // Only BIN auctions can be reliably checked
+            .OrderBy(a => a.End)
             .Take(100) // Limit to avoid overwhelming
             .ToListAsync(stoppingToken);
 
@@ -137,6 +138,7 @@ public class AuctionLifecycleService : BackgroundService
         var auctionIdsToDelete = await dbContext.Auctions
             .Where(a => (a.Status == AuctionStatus.SOLD || a.Status == AuctionStatus.EXPIRED) &&
                        a.End < cutoffDate)
+            .OrderBy(a => a.End)
             .Take(1000)
             .Select(a => a.Id)
             .ToListAsync(stoppingToken);

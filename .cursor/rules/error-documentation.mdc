@@ -36,6 +36,11 @@ alwaysApply: false
 **Context:** Much slower at scale (>100k sold auctions). Reference uses `AddNBTSelect`/`AddNbtRangeSelect` for DB-level filtering.
 **Fix:** Rewrite GetSelect to use IQueryable NBTLookup filtering instead of in-memory.
 
+### 8. Missing Pet Exp Guard (P0)
+**Status:** Resolved — `ShouldPetItemMatch` now requires `exp` key.
+**Context:** Reference guards on `flatNbt.ContainsKey("exp")`; missing guard allowed matches without exp.
+**Fix:** Added guard and parity test.
+
 ### 6. AveragePrice.CacheKey Length (P1)
 **Status:** Open — Column is `varchar(200)` but range-normalized cache keys can exceed 200 chars.
 **Context:** Already fixed FlipHitCount.CacheKey to `text`. AveragePrice.CacheKey needs same treatment.

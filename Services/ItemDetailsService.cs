@@ -201,6 +201,8 @@ public class ItemDetailsService
             .Where(d => d.Tag.Contains(query) || 
                        d.DisplayName!.Contains(query) ||
                        d.AlternativeNames.Any(a => a.Name.Contains(query)))
+            .OrderByDescending(d => d.LastSeen)
+            .ThenBy(d => d.Tag)
             .Take(50)
             .ToListAsync();
     }

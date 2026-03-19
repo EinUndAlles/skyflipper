@@ -16,7 +16,6 @@ Parity fixes from `FULL_PARITY_REVIEW.md` with P0 accuracy gaps first.
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
-- Fix `ShouldPetItemMatch` exp guard.
 - Port `SelectBestEnchant` WorthOrder/WorthOrderLevels.
 - Add SQL-level NBT filtering.
 - Add debug endpoints for flip reference inspection.

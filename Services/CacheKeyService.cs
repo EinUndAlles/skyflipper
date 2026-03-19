@@ -576,6 +576,9 @@ public class CacheKeyService
         if (!flatNbt.TryGetValue("heldItem", out var heldItem) || string.IsNullOrEmpty(heldItem))
             return false;
 
+        if (!flatNbt.ContainsKey("exp"))
+            return false;
+
         // Valuable pet items always match exactly - reference lines 812-827
         if (ValuablePetItems.Contains(heldItem))
             return true;

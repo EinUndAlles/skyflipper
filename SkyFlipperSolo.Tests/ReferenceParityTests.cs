@@ -48,6 +48,17 @@ public class ReferenceParityTests
         Assert.That(CacheKeyService.ShouldPetItemMatch(flatNbt, 10), Is.EqualTo(expected));
     }
 
+    [Test]
+    public void ShouldPetItemMatchRequiresExpGuard()
+    {
+        var flatNbt = new Dictionary<string, string>
+        {
+            ["heldItem"] = "PET_ITEM_TIER_BOOST"
+        };
+
+        Assert.That(CacheKeyService.ShouldPetItemMatch(flatNbt, 10), Is.False);
+    }
+
     [TestCase("[Lvl 143] Test", "[Lvl 14_] Test")]
     [TestCase("[Lvl 14] Test", "[Lvl 1_] Test")]
     [TestCase("[Lvl 1] Test", "[Lvl _] Test")]

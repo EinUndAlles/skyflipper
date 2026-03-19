@@ -54,6 +54,7 @@ public class TestController : ControllerBase
             // Sample data
             SampleEnchantments = await _context.Enchantments
                 .Include(e => e.Auction)
+                .OrderByDescending(e => e.Id)
                 .Take(5)
                 .Select(e => new 
                 {
@@ -76,6 +77,7 @@ public class TestController : ControllerBase
     {
         var samples = await _context.Auctions
             .Include(a => a.Enchantments)
+            .OrderByDescending(a => a.FetchedAt)
             .Take(5)
             .Select(a => new
             {

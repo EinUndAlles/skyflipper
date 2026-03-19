@@ -40,11 +40,14 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? "Host=localhost;Database=skyflipperdb;Username=postgres;Password=postgres";
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
         npgsqlOptions.EnableRetryOnFailure(
             maxRetryCount: 5,
             maxRetryDelay: TimeSpan.FromSeconds(10),
             errorCodesToAdd: new[] { "40P01" } // PostgreSQL deadlock error code
-        )));
+        );
+    }));
 
 // Add HttpClient for Hypixel API
 builder.Services.AddHttpClient("HypixelApi", client =>
