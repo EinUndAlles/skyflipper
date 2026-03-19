@@ -385,9 +385,325 @@ public class ReferenceAuctionService
                 .ThenInclude(n => n.NBTValue)
             .OrderByDescending(a => a.Status == AuctionStatus.SOLD && a.SoldAt.HasValue ? a.SoldAt : a.End);
 
-        var roughLimit = Math.Max(limit * 8, 200);
-        var candidates = await baseQuery.Take(roughLimit).ToListAsync(stoppingToken);
         var targetFlatNbt = GetFlatNbt(auction);
+        var select = baseQuery;
+
+        var recombMatters = CacheKeyService.DoesRecombMatter(auction.Category, auction.Tag);
+        if (auction.Tag != "ENCHANTED_BOOK" && (recombMatters || CacheKeyService.IsPet(auction.Tag)))
+            select = select.Where(a => a.Tier == auction.Tier);
+
+        var shouldDropAncient = reduced && auction.Reforge == Reforge.Ancient;
+        if (RelevantReforges.Contains(auction.Reforge) && !shouldDropAncient)
+            select = select.Where(a => a.Reforge == auction.Reforge);
+        else
+            select = select.Where(a => !RelevantReforges.Contains(a.Reforge));
+
+        if (auction.Count == 64 && !reduced)
+            select = select.Where(a => a.Count == auction.Count);
+
+        if (auction.ItemName != clearedName && !string.IsNullOrEmpty(clearedName))
+        {
+            select = select.Where(a => EF.Functions.Like(a.ItemName, "%" + clearedName));
+        }
+        else if (auction.Tag.StartsWith("PET", StringComparison.Ordinal) && auction.ItemName.StartsWith("[", StringComparison.Ordinal))
+        {
+            var petPattern = GetPetLevelSelectValue(auction.ItemName);
+            select = select.Where(a => EF.Functions.Like(a.ItemName, petPattern));
+        }
+        else
+        {
+            select = select.Where(a => a.ItemName == clearedName);
+        }
+
+        var keyIdCache = new Dictionary<string, short?>(StringComparer.OrdinalIgnoreCase);
+        var valueIdCache = new Dictionary<(short KeyId, string Value), int>();
+
+        async Task<short?> GetKeyIdAsync(string keyName)
+        {
+            if (keyIdCache.TryGetValue(keyName, out var cached))
+                return cached;
+
+            var key = await dbContext.NBTKeys.AsNoTracking()
+                .FirstOrDefaultAsync(k => k.KeyName == keyName, stoppingToken);
+            var id = key?.Id;
+            keyIdCache[keyName] = id;
+            return id;
+        }
+
+        async Task<int?> GetValueIdAsync(short? keyId, string value)
+        {
+            if (!keyId.HasValue)
+                return null;
+
+            var cacheKey = (keyId.Value, value);
+            if (valueIdCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            var valueEntity = await dbContext.NBTValues.AsNoTracking()
+                .FirstOrDefaultAsync(v => v.KeyId == keyId.Value && v.Value == value, stoppingToken);
+
+            if (valueEntity?.Id is int id)
+                valueIdCache[cacheKey] = id;
+
+            return valueEntity?.Id;
+        }
+
+        async Task<IQueryable<Auction>> AddNbtSelectAsync(IQueryable<Auction> query, string keyName)
+        {
+            var keyId = await GetKeyIdAsync(keyName);
+            if (!targetFlatNbt.TryGetValue(keyName, out var targetValue))
+            {
+                return keyId.HasValue
+                    ? query.Where(a => !a.NBTLookups.Any(n => (n.KeyId == keyId.Value || n.Key == keyName)))
+                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == keyName));
+            }
+
+            if (!long.TryParse(targetValue, out var numericTarget))
+            {
+                var valueId = await GetValueIdAsync(keyId, targetValue);
+                if (keyId.HasValue)
+                {
+                    if (valueId.HasValue)
+                    {
+                        return query.Where(a => a.NBTLookups.Any(n =>
+                            (n.KeyId == keyId.Value || n.Key == keyName) &&
+                            ((n.ValueId.HasValue && n.ValueId.Value == valueId.Value) ||
+                             (n.ValueString != null && n.ValueString == targetValue))));
+                    }
+
+                    return query.Where(a => a.NBTLookups.Any(n =>
+                        (n.KeyId == keyId.Value || n.Key == keyName) &&
+                        (n.ValueString != null && n.ValueString == targetValue)));
+                }
+
+                return query.Where(a => a.NBTLookups.Any(n =>
+                    n.Key == keyName && n.ValueString != null && n.ValueString == targetValue));
+            }
+
+            var lowerLimit = (long)(numericTarget * 0.8);
+            return keyId.HasValue
+                ? query.Where(a => a.NBTLookups.Any(n =>
+                    (n.KeyId == keyId.Value || n.Key == keyName) &&
+                    n.ValueNumeric.HasValue &&
+                    n.ValueNumeric <= numericTarget && n.ValueNumeric > lowerLimit))
+                : query.Where(a => a.NBTLookups.Any(n =>
+                    n.Key == keyName &&
+                    n.ValueNumeric.HasValue &&
+                    n.ValueNumeric <= numericTarget && n.ValueNumeric > lowerLimit));
+        }
+
+        async Task<IQueryable<Auction>> AddNbtRangeSelectAsync(IQueryable<Auction> query, string keyName, long maxDiff, int percentIncrease)
+        {
+            var keyId = await GetKeyIdAsync(keyName);
+            if (!targetFlatNbt.TryGetValue(keyName, out var targetValue))
+            {
+                return keyId.HasValue
+                    ? query.Where(a => !a.NBTLookups.Any(n => (n.KeyId == keyId.Value || n.Key == keyName)))
+                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == keyName));
+            }
+
+            if (!long.TryParse(targetValue, out var numericTarget))
+                return query;
+
+            maxDiff += numericTarget * percentIncrease / 100;
+            var min = numericTarget - maxDiff;
+            var max = numericTarget + maxDiff;
+
+            return keyId.HasValue
+                ? query.Where(a => a.NBTLookups.Any(n =>
+                    (n.KeyId == keyId.Value || n.Key == keyName) &&
+                    n.ValueNumeric.HasValue &&
+                    n.ValueNumeric > min && n.ValueNumeric < max))
+                : query.Where(a => a.NBTLookups.Any(n =>
+                    n.Key == keyName &&
+                    n.ValueNumeric.HasValue &&
+                    n.ValueNumeric > min && n.ValueNumeric < max));
+        }
+
+        async Task<IQueryable<Auction>> AddCandySelectAsync(IQueryable<Auction> query)
+        {
+            if (!targetFlatNbt.TryGetValue("candyUsed", out var candyValue))
+                return query;
+
+            if (targetFlatNbt.TryGetValue("exp", out var expString) &&
+                double.TryParse(expString, out var exp) &&
+                exp > 24_000_000 &&
+                targetFlatNbt.ContainsKey("skin"))
+            {
+                var heldItemKeyId = await GetKeyIdAsync("heldItem");
+                return heldItemKeyId.HasValue
+                    ? query.Where(a => !a.NBTLookups.Any(n => n.KeyId == heldItemKeyId.Value || n.Key == "heldItem"))
+                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == "heldItem"));
+            }
+
+            if (!long.TryParse(candyValue, out var numericCandy))
+                return query;
+
+            var keyId = await GetKeyIdAsync("candyUsed");
+            if (numericCandy > 0)
+            {
+                return keyId.HasValue
+                    ? query.Where(a => a.NBTLookups.Any(n =>
+                        (n.KeyId == keyId.Value || n.Key == "candyUsed") &&
+                        n.ValueNumeric.HasValue && n.ValueNumeric > 0))
+                    : query.Where(a => a.NBTLookups.Any(n =>
+                        n.Key == "candyUsed" && n.ValueNumeric.HasValue && n.ValueNumeric > 0));
+            }
+
+            return keyId.HasValue
+                ? query.Where(a => a.NBTLookups.Any(n =>
+                    (n.KeyId == keyId.Value || n.Key == "candyUsed") &&
+                    n.ValueNumeric.HasValue && n.ValueNumeric == 0))
+                : query.Where(a => a.NBTLookups.Any(n =>
+                    n.Key == "candyUsed" && n.ValueNumeric.HasValue && n.ValueNumeric == 0));
+        }
+
+        async Task<IQueryable<Auction>> AddPetItemSelectAsync(IQueryable<Auction> query)
+        {
+            if (targetFlatNbt.TryGetValue("heldItem", out var heldItem))
+            {
+                var keyId = await GetKeyIdAsync("heldItem");
+                if (CacheKeyService.ShouldPetItemMatch(targetFlatNbt, auction.StartingBid))
+                {
+                    var valueId = await GetValueIdAsync(keyId, heldItem);
+                    if (keyId.HasValue)
+                    {
+                        if (valueId.HasValue)
+                        {
+                            return query.Where(a => a.NBTLookups.Any(n =>
+                                (n.KeyId == keyId.Value || n.Key == "heldItem") &&
+                                ((n.ValueId.HasValue && n.ValueId.Value == valueId.Value) ||
+                                 (n.ValueString != null && n.ValueString == heldItem))));
+                        }
+
+                        return query.Where(a => a.NBTLookups.Any(n =>
+                            (n.KeyId == keyId.Value || n.Key == "heldItem") &&
+                            n.ValueString != null && n.ValueString == heldItem));
+                    }
+
+                    return query.Where(a => a.NBTLookups.Any(n =>
+                        n.Key == "heldItem" && n.ValueString != null && n.ValueString == heldItem));
+                }
+
+                if (keyId.HasValue)
+                {
+                    var valuableIds = await dbContext.NBTValues.AsNoTracking()
+                        .Where(v => v.KeyId == keyId.Value && ValuablePetItems.Contains(v.Value))
+                        .Select(v => v.Id)
+                        .ToListAsync(stoppingToken);
+
+                    if (valuableIds.Count > 0)
+                    {
+                        return query.Where(a => !a.NBTLookups.Any(n =>
+                            (n.KeyId == keyId.Value || n.Key == "heldItem") &&
+                            ((n.ValueId.HasValue && valuableIds.Contains(n.ValueId.Value)) ||
+                             (n.ValueString != null && ValuablePetItems.Contains(n.ValueString)))));
+                    }
+                }
+
+                return query.Where(a => !a.NBTLookups.Any(n =>
+                    (keyId.HasValue ? (n.KeyId == keyId.Value || n.Key == "heldItem") : n.Key == "heldItem") &&
+                    n.ValueString != null && ValuablePetItems.Contains(n.ValueString)));
+            }
+
+            if (targetFlatNbt.ContainsKey("candyUsed"))
+            {
+                var keyId = await GetKeyIdAsync("heldItem");
+                return keyId.HasValue
+                    ? query.Where(a => !a.NBTLookups.Any(n => n.KeyId == keyId.Value || n.Key == "heldItem"))
+                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == "heldItem"));
+            }
+
+            return query;
+        }
+
+        if (auction.Tag.EndsWith("MIDAS_STAFF", StringComparison.Ordinal) || auction.Tag.EndsWith("MIDAS_SWORD", StringComparison.Ordinal))
+        {
+            select = await AddNbtRangeSelectAsync(select, "winning_bid", 2_000_000, 3);
+            select = await AddNbtRangeSelectAsync(select, "additional_coins", 2_000_000, 3);
+            oldest -= TimeSpan.FromDays(5);
+        }
+
+        if (targetFlatNbt.ContainsKey("seconds_held"))
+            select = await AddNbtRangeSelectAsync(select, "seconds_held", 20_000, 10);
+
+        if (auction.Tag.Contains("HOE", StringComparison.Ordinal) || targetFlatNbt.ContainsKey("farming_for_dummies_count"))
+            select = await AddNbtSelectAsync(select, "farming_for_dummies_count");
+
+        if (auction.Tag == "CAKE_SOUL")
+            select = await AddNbtSelectAsync(select, "captured_player");
+
+        if (targetFlatNbt.ContainsKey("rarity_upgrades") && recombMatters)
+            select = await AddNbtSelectAsync(select, "rarity_upgrades");
+
+        if (auction.Tag == "ASPECT_OF_THE_VOID" || auction.Tag == "ASPECT_OF_THE_END")
+            select = await AddNbtSelectAsync(select, "ethermerge");
+
+        if (auction.Tag == "NECRONS_LADDER")
+            select = await AddNbtSelectAsync(select, "handles_found");
+
+        if (auction.Tag == "DIANAS_BOOKSHELF")
+            select = await AddNbtSelectAsync(select, "chimera_found");
+
+        if (targetFlatNbt.ContainsKey("edition"))
+            select = await AddNbtRangeSelectAsync(select, "edition", 100, 10);
+
+        if (targetFlatNbt.ContainsKey("new_years_cake"))
+            select = await AddNbtSelectAsync(select, "new_years_cake");
+
+        if (targetFlatNbt.ContainsKey("dungeon_item_level") && !reduced)
+            select = await AddNbtSelectAsync(select, "dungeon_item_level");
+
+        if (targetFlatNbt.ContainsKey("candyUsed"))
+            select = await AddCandySelectAsync(select);
+
+        foreach (var exactKey in new[] { "art_of_war_count", "MUSIC", "ENCHANT", "DRAGON", "TIDAL", "ability_scroll", "party_hat_emoji" })
+        {
+            if (targetFlatNbt.ContainsKey(exactKey))
+                select = await AddNbtSelectAsync(select, exactKey);
+        }
+
+        if (auction.Tag.Contains("FINAL_DESTINATION", StringComparison.Ordinal))
+            select = await AddNbtRangeSelectAsync(select, "eman_kills", 1000, 10);
+
+        if (targetFlatNbt.Keys.Any(k => AttributeKeys.Contains(k)))
+        {
+            foreach (var attributeKey in AttributeKeys)
+                select = await AddNbtSelectAsync(select, attributeKey);
+        }
+
+        if (auction.Tag.Contains("_DRILL", StringComparison.Ordinal))
+        {
+            select = await AddNbtSelectAsync(select, "drill_part_engine");
+            select = await AddNbtSelectAsync(select, "drill_part_fuel_tank");
+            select = await AddNbtSelectAsync(select, "drill_part_upgrade_module");
+        }
+
+        select = await AddPetItemSelectAsync(select);
+
+        if (targetFlatNbt.ContainsKey("skin"))
+            select = await AddNbtSelectAsync(select, "skin");
+
+        if (targetFlatNbt.ContainsKey("color") || CacheKeyService.IsArmor(auction.Tag))
+        {
+            select = await AddNbtSelectAsync(select, "color");
+            select = await AddNbtSelectAsync(select, "dye_item");
+        }
+
+        foreach (var key in targetFlatNbt.Keys.Where(k => k.EndsWith("_kills", StringComparison.Ordinal)))
+            select = await AddNbtRangeSelectAsync(select, key, 0, 20);
+
+        if (targetFlatNbt.ContainsKey("unlocked_slots"))
+        {
+            select = await AddNbtSelectAsync(select, "unlocked_slots");
+            select = select.Where(a => a.ItemCreatedAt > UnlockedIntroduction);
+        }
+
+        if (targetFlatNbt.ContainsKey("gemstone_slots"))
+            select = await AddNbtSelectAsync(select, "gemstone_slots");
+
+        var roughLimit = Math.Max(limit * 8, 200);
+        var candidates = await select.Take(roughLimit).ToListAsync(stoppingToken);
 
         var filtered = candidates
             .Where(candidate => MatchesCandidate(candidate, auction, clearedName, targetFlatNbt, ultimate, relevantEnchants, reduced))
@@ -865,11 +1181,521 @@ public class ReferenceAuctionService
 
     private static Enchantment SelectBestEnchant(List<Enchantment> enchants)
     {
-        return enchants
-            .OrderByDescending(e => e.Level)
-            .ThenBy(e => e.Type.ToString(), StringComparer.Ordinal)
-            .First();
+        if (enchants == null || enchants.Count == 0)
+            return new Enchantment();
+
+        foreach (var item in WorthOrderLevels)
+        {
+            foreach (var enchant in enchants)
+            {
+                if (enchant.Type == item.Type && enchant.Level == item.Level)
+                    return enchant;
+            }
+        }
+
+        foreach (var type in WorthOrder)
+        {
+            foreach (var enchant in enchants)
+            {
+                if (enchant.Type == type)
+                    return enchant;
+            }
+        }
+
+        return new Enchantment();
     }
+
+    private static readonly List<EnchantmentType> WorthOrder = new()
+    {
+        EnchantmentType.ultimate_chimera,
+        EnchantmentType.counter_strike,
+        EnchantmentType.big_brain,
+        EnchantmentType.vicious,
+        EnchantmentType.ultimate_one_for_all,
+        EnchantmentType.dragon_hunter,
+        EnchantmentType.fire_aspect,
+        EnchantmentType.triple_strike,
+        EnchantmentType.venomous,
+        EnchantmentType.pristine,
+        EnchantmentType.cubism,
+        EnchantmentType.execute,
+        EnchantmentType.ender_slayer,
+        EnchantmentType.sharpness,
+        EnchantmentType.prosecute,
+        EnchantmentType.ultimate_legion,
+        EnchantmentType.power,
+        EnchantmentType.impaling,
+        EnchantmentType.giant_killer,
+        EnchantmentType.ultimate_soul_eater,
+        EnchantmentType.cleave,
+        EnchantmentType.cultivating,
+        EnchantmentType.telekinesis,
+        EnchantmentType.expertise,
+        EnchantmentType.compact,
+        EnchantmentType.growth,
+        EnchantmentType.syphon,
+        EnchantmentType.protection,
+        EnchantmentType.critical,
+        EnchantmentType.smarty_pants,
+        EnchantmentType.vampirism,
+        EnchantmentType.snipe,
+        EnchantmentType.thunderbolt,
+        EnchantmentType.first_strike,
+        EnchantmentType.titan_killer,
+        EnchantmentType.experience,
+        EnchantmentType.lethality,
+        EnchantmentType.overload,
+        EnchantmentType.luck,
+        EnchantmentType.thunderlord,
+        EnchantmentType.ultimate_swarm,
+        EnchantmentType.scavenger,
+        EnchantmentType.life_steal,
+        EnchantmentType.replenish,
+        EnchantmentType.smite,
+        EnchantmentType.chance,
+        EnchantmentType.looting,
+        EnchantmentType.true_protection,
+        EnchantmentType.bane_of_arthropods,
+        EnchantmentType.harvesting,
+        EnchantmentType.ultimate_rend,
+        EnchantmentType.sugar_rush,
+        EnchantmentType.fire_protection,
+        EnchantmentType.blast_protection,
+        EnchantmentType.delicate,
+        EnchantmentType.projectile_protection,
+        EnchantmentType.ultimate_last_stand,
+        EnchantmentType.ultimate_wisdom,
+        EnchantmentType.depth_strider,
+        EnchantmentType.frail,
+        EnchantmentType.lure,
+        EnchantmentType.magnet,
+        EnchantmentType.ultimate_wise,
+        EnchantmentType.piercing,
+        EnchantmentType.turbo_pumpkin,
+        EnchantmentType.blessing,
+        EnchantmentType.infinite_quiver,
+        EnchantmentType.caster,
+        EnchantmentType.feather_falling,
+        EnchantmentType.fortune,
+        EnchantmentType.turbo_melon,
+        EnchantmentType.respite,
+        EnchantmentType.turbo_mushrooms,
+        EnchantmentType.luck_of_the_sea,
+        EnchantmentType.aqua_affinity,
+        EnchantmentType.turbo_potato,
+        EnchantmentType.turbo_cactus,
+        EnchantmentType.spiked_hook,
+        EnchantmentType.turbo_warts,
+        EnchantmentType.turbo_cane,
+        EnchantmentType.flame,
+        EnchantmentType.angler,
+        EnchantmentType.thorns,
+        EnchantmentType.mana_steal,
+        EnchantmentType.turbo_coco,
+        EnchantmentType.turbo_carrot,
+        EnchantmentType.respiration,
+        EnchantmentType.aiming,
+        EnchantmentType.rejuvenate,
+        EnchantmentType.smelting_touch,
+        EnchantmentType.punch,
+        EnchantmentType.frost_walker,
+        EnchantmentType.ultimate_jerry,
+        EnchantmentType.ultimate_combo,
+        EnchantmentType.turbo_wheat,
+        EnchantmentType.ultimate_bank,
+        EnchantmentType.efficiency,
+        EnchantmentType.rainbow,
+        EnchantmentType.silk_touch,
+        EnchantmentType.knockback,
+        EnchantmentType.ultimate_no_pain_no_gain
+    };
+
+    private static readonly List<(EnchantmentType Type, int Level)> WorthOrderLevels = new()
+    {
+        (EnchantmentType.ultimate_chimera, 2),
+        (EnchantmentType.growth, 7),
+        (EnchantmentType.syphon, 5),
+        (EnchantmentType.looting, 5),
+        (EnchantmentType.snipe, 4),
+        (EnchantmentType.first_strike, 5),
+        (EnchantmentType.triple_strike, 5),
+        (EnchantmentType.ultimate_chimera, 1),
+        (EnchantmentType.big_brain, 5),
+        (EnchantmentType.power, 7),
+        (EnchantmentType.luck, 7),
+        (EnchantmentType.cubism, 6),
+        (EnchantmentType.critical, 7),
+        (EnchantmentType.counter_strike, 5),
+        (EnchantmentType.giant_killer, 7),
+        (EnchantmentType.ender_slayer, 7),
+        (EnchantmentType.execute, 6),
+        (EnchantmentType.sharpness, 7),
+        (EnchantmentType.protection, 7),
+        (EnchantmentType.venomous, 6),
+        (EnchantmentType.vicious, 5),
+        (EnchantmentType.life_steal, 5),
+        (EnchantmentType.chance, 5),
+        (EnchantmentType.scavenger, 5),
+        (EnchantmentType.dragon_hunter, 5),
+        (EnchantmentType.vicious, 4),
+        (EnchantmentType.big_brain, 3),
+        (EnchantmentType.ultimate_legion, 5),
+        (EnchantmentType.ultimate_soul_eater, 5),
+        (EnchantmentType.cleave, 6),
+        (EnchantmentType.pristine, 5),
+        (EnchantmentType.ultimate_swarm, 5),
+        (EnchantmentType.ultimate_one_for_all, 1),
+        (EnchantmentType.overload, 5),
+        (EnchantmentType.sharpness, 1),
+        (EnchantmentType.prosecute, 6),
+        (EnchantmentType.smarty_pants, 5),
+        (EnchantmentType.ultimate_legion, 4),
+        (EnchantmentType.vicious, 3),
+        (EnchantmentType.ultimate_soul_eater, 4),
+        (EnchantmentType.titan_killer, 7),
+        (EnchantmentType.pristine, 4),
+        (EnchantmentType.dragon_hunter, 4),
+        (EnchantmentType.fire_protection, 7),
+        (EnchantmentType.ultimate_rend, 5),
+        (EnchantmentType.thunderbolt, 6),
+        (EnchantmentType.blast_protection, 7),
+        (EnchantmentType.overload, 4),
+        (EnchantmentType.growth, 6),
+        (EnchantmentType.smarty_pants, 4),
+        (EnchantmentType.ultimate_legion, 3),
+        (EnchantmentType.ultimate_soul_eater, 3),
+        (EnchantmentType.protection, 6),
+        (EnchantmentType.ultimate_swarm, 4),
+        (EnchantmentType.pristine, 3),
+        (EnchantmentType.dragon_hunter, 3),
+        (EnchantmentType.ultimate_last_stand, 5),
+        (EnchantmentType.ultimate_wisdom, 5),
+        (EnchantmentType.harvesting, 1),
+        (EnchantmentType.overload, 3),
+        (EnchantmentType.snipe, 1),
+        (EnchantmentType.fire_aspect, 2),
+        (EnchantmentType.ultimate_wise, 5),
+        (EnchantmentType.ender_slayer, 6),
+        (EnchantmentType.turbo_pumpkin, 5),
+        (EnchantmentType.turbo_mushrooms, 5),
+        (EnchantmentType.smarty_pants, 3),
+        (EnchantmentType.turbo_cactus, 5),
+        (EnchantmentType.ultimate_rend, 4),
+        (EnchantmentType.bane_of_arthropods, 7),
+        (EnchantmentType.ultimate_legion, 2),
+        (EnchantmentType.ultimate_soul_eater, 2),
+        (EnchantmentType.turbo_melon, 5),
+        (EnchantmentType.projectile_protection, 7),
+        (EnchantmentType.ultimate_swarm, 3),
+        (EnchantmentType.thunderbolt, 4),
+        (EnchantmentType.pristine, 2),
+        (EnchantmentType.ultimate_last_stand, 4),
+        (EnchantmentType.bane_of_arthropods, 1),
+        (EnchantmentType.dragon_hunter, 2),
+        (EnchantmentType.experience, 4),
+        (EnchantmentType.ultimate_wisdom, 4),
+        (EnchantmentType.smite, 7),
+        (EnchantmentType.turbo_potato, 5),
+        (EnchantmentType.ultimate_rend, 3),
+        (EnchantmentType.impaling, 3),
+        (EnchantmentType.vampirism, 6),
+        (EnchantmentType.sharpness, 6),
+        (EnchantmentType.fire_aspect, 1),
+        (EnchantmentType.turbo_mushrooms, 4),
+        (EnchantmentType.growth, 1),
+        (EnchantmentType.cultivating, 1),
+        (EnchantmentType.expertise, 1),
+        (EnchantmentType.ultimate_wise, 4),
+        (EnchantmentType.harvesting, 6),
+        (EnchantmentType.compact, 1),
+        (EnchantmentType.overload, 2),
+        (EnchantmentType.turbo_pumpkin, 4),
+        (EnchantmentType.infinite_quiver, 8),
+        (EnchantmentType.turbo_carrot, 5),
+        (EnchantmentType.turbo_cactus, 4),
+        (EnchantmentType.cubism, 5),
+        (EnchantmentType.giant_killer, 6),
+        (EnchantmentType.turbo_cane, 5),
+        (EnchantmentType.telekinesis, 1),
+        (EnchantmentType.lethality, 6),
+        (EnchantmentType.venomous, 5),
+        (EnchantmentType.bane_of_arthropods, 5),
+        (EnchantmentType.execute, 5),
+        (EnchantmentType.respite, 5),
+        (EnchantmentType.cleave, 5),
+        (EnchantmentType.smarty_pants, 2),
+        (EnchantmentType.turbo_melon, 4),
+        (EnchantmentType.projectile_protection, 1),
+        (EnchantmentType.ultimate_legion, 1),
+        (EnchantmentType.ultimate_soul_eater, 1),
+        (EnchantmentType.thunderlord, 6),
+        (EnchantmentType.sugar_rush, 3),
+        (EnchantmentType.infinite_quiver, 9),
+        (EnchantmentType.ultimate_jerry, 5),
+        (EnchantmentType.ultimate_last_stand, 3),
+        (EnchantmentType.pristine, 1),
+        (EnchantmentType.power, 4),
+        (EnchantmentType.syphon, 4),
+        (EnchantmentType.turbo_mushrooms, 3),
+        (EnchantmentType.replenish, 1),
+        (EnchantmentType.ultimate_combo, 5),
+        (EnchantmentType.power, 6),
+        (EnchantmentType.first_strike, 4),
+        (EnchantmentType.ultimate_swarm, 2),
+        (EnchantmentType.turbo_potato, 4),
+        (EnchantmentType.magnet, 4),
+        (EnchantmentType.ultimate_wisdom, 3),
+        (EnchantmentType.titan_killer, 6),
+        (EnchantmentType.dragon_hunter, 1),
+        (EnchantmentType.true_protection, 1),
+        (EnchantmentType.turbo_coco, 5),
+        (EnchantmentType.critical, 3),
+        (EnchantmentType.spiked_hook, 3),
+        (EnchantmentType.frail, 3),
+        (EnchantmentType.aiming, 3),
+        (EnchantmentType.turbo_wheat, 5),
+        (EnchantmentType.turbo_cane, 4),
+        (EnchantmentType.feather_falling, 8),
+        (EnchantmentType.lethality, 5),
+        (EnchantmentType.feather_falling, 9),
+        (EnchantmentType.turbo_carrot, 4),
+        (EnchantmentType.ultimate_wise, 3),
+        (EnchantmentType.rejuvenate, 5),
+        (EnchantmentType.turbo_pumpkin, 3),
+        (EnchantmentType.ultimate_rend, 2),
+        (EnchantmentType.life_steal, 4),
+        (EnchantmentType.life_steal, 3),
+        (EnchantmentType.scavenger, 3),
+        (EnchantmentType.vampirism, 5),
+        (EnchantmentType.turbo_cactus, 3),
+        (EnchantmentType.scavenger, 4),
+        (EnchantmentType.overload, 1),
+        (EnchantmentType.experience, 3),
+        (EnchantmentType.growth, 3),
+        (EnchantmentType.delicate, 5),
+        (EnchantmentType.giant_killer, 5),
+        (EnchantmentType.looting, 3),
+        (EnchantmentType.infinite_quiver, 7),
+        (EnchantmentType.luck, 6),
+        (EnchantmentType.smarty_pants, 1),
+        (EnchantmentType.luck, 5),
+        (EnchantmentType.critical, 5),
+        (EnchantmentType.spiked_hook, 4),
+        (EnchantmentType.efficiency, 1),
+        (EnchantmentType.critical, 6),
+        (EnchantmentType.ultimate_combo, 4),
+        (EnchantmentType.respite, 4),
+        (EnchantmentType.sugar_rush, 2),
+        (EnchantmentType.turbo_melon, 3),
+        (EnchantmentType.turbo_warts, 5),
+        (EnchantmentType.ultimate_jerry, 4),
+        (EnchantmentType.luck_of_the_sea, 4),
+        (EnchantmentType.looting, 4),
+        (EnchantmentType.turbo_coco, 4),
+        (EnchantmentType.smite, 1),
+        (EnchantmentType.ender_slayer, 5),
+        (EnchantmentType.ender_slayer, 3),
+        (EnchantmentType.ultimate_swarm, 1),
+        (EnchantmentType.prosecute, 5),
+        (EnchantmentType.turbo_potato, 3),
+        (EnchantmentType.turbo_carrot, 3),
+        (EnchantmentType.ultimate_no_pain_no_gain, 5),
+        (EnchantmentType.fortune, 4),
+        (EnchantmentType.ultimate_rend, 1),
+        (EnchantmentType.turbo_wheat, 4),
+        (EnchantmentType.power, 3),
+        (EnchantmentType.turbo_cane, 3),
+        (EnchantmentType.sharpness, 5),
+        (EnchantmentType.rejuvenate, 4),
+        (EnchantmentType.depth_strider, 3),
+        (EnchantmentType.ultimate_last_stand, 2),
+        (EnchantmentType.ultimate_wisdom, 2),
+        (EnchantmentType.snipe, 3),
+        (EnchantmentType.chance, 4),
+        (EnchantmentType.feather_falling, 1),
+        (EnchantmentType.turbo_mushrooms, 2),
+        (EnchantmentType.thunderbolt, 5),
+        (EnchantmentType.sugar_rush, 1),
+        (EnchantmentType.turbo_coco, 3),
+        (EnchantmentType.feather_falling, 10),
+        (EnchantmentType.caster, 6),
+        (EnchantmentType.lure, 6),
+        (EnchantmentType.frail, 6),
+        (EnchantmentType.blast_protection, 6),
+        (EnchantmentType.ultimate_wise, 2),
+        (EnchantmentType.thunderlord, 5),
+        (EnchantmentType.blessing, 5),
+        (EnchantmentType.piercing, 1),
+        (EnchantmentType.bane_of_arthropods, 4),
+        (EnchantmentType.triple_strike, 4),
+        (EnchantmentType.turbo_warts, 4),
+        (EnchantmentType.magnet, 6),
+        (EnchantmentType.smite, 5),
+        (EnchantmentType.turbo_pumpkin, 2),
+        (EnchantmentType.turbo_cactus, 2),
+        (EnchantmentType.depth_strider, 2),
+        (EnchantmentType.venomous, 3),
+        (EnchantmentType.growth, 4),
+        (EnchantmentType.smite, 6),
+        (EnchantmentType.ultimate_combo, 3),
+        (EnchantmentType.lure, 4),
+        (EnchantmentType.punch, 2),
+        (EnchantmentType.luck_of_the_sea, 6),
+        (EnchantmentType.cubism, 2),
+        (EnchantmentType.power, 5),
+        (EnchantmentType.infinite_quiver, 10),
+        (EnchantmentType.ultimate_no_pain_no_gain, 4),
+        (EnchantmentType.turbo_warts, 1),
+        (EnchantmentType.sharpness, 4),
+        (EnchantmentType.spiked_hook, 5),
+        (EnchantmentType.mana_steal, 2),
+        (EnchantmentType.ultimate_last_stand, 1),
+        (EnchantmentType.angler, 6),
+        (EnchantmentType.aqua_affinity, 1),
+        (EnchantmentType.frost_walker, 2),
+        (EnchantmentType.turbo_wheat, 3),
+        (EnchantmentType.spiked_hook, 6),
+        (EnchantmentType.turbo_melon, 2),
+        (EnchantmentType.flame, 1),
+        (EnchantmentType.turbo_warts, 3),
+        (EnchantmentType.frail, 5),
+        (EnchantmentType.turbo_potato, 2),
+        (EnchantmentType.syphon, 3),
+        (EnchantmentType.thorns, 3),
+        (EnchantmentType.aiming, 5),
+        (EnchantmentType.respite, 3),
+        (EnchantmentType.caster, 4),
+        (EnchantmentType.ultimate_wisdom, 1),
+        (EnchantmentType.harvesting, 5),
+        (EnchantmentType.rejuvenate, 3),
+        (EnchantmentType.ultimate_bank, 5),
+        (EnchantmentType.mana_steal, 1),
+        (EnchantmentType.mana_steal, 3),
+        (EnchantmentType.turbo_cane, 2),
+        (EnchantmentType.feather_falling, 6),
+        (EnchantmentType.ultimate_wise, 1),
+        (EnchantmentType.ultimate_jerry, 3),
+        (EnchantmentType.infinite_quiver, 2),
+        (EnchantmentType.protection, 3),
+        (EnchantmentType.turbo_carrot, 2),
+        (EnchantmentType.blessing, 4),
+        (EnchantmentType.chance, 3),
+        (EnchantmentType.fire_protection, 6),
+        (EnchantmentType.respiration, 3),
+        (EnchantmentType.caster, 5),
+        (EnchantmentType.turbo_pumpkin, 1),
+        (EnchantmentType.knockback, 2),
+        (EnchantmentType.turbo_coco, 2),
+        (EnchantmentType.sharpness, 2),
+        (EnchantmentType.venomous, 4),
+        (EnchantmentType.feather_falling, 7),
+        (EnchantmentType.cleave, 4),
+        (EnchantmentType.angler, 5),
+        (EnchantmentType.infinite_quiver, 5),
+        (EnchantmentType.turbo_mushrooms, 1),
+        (EnchantmentType.smelting_touch, 1),
+        (EnchantmentType.harvesting, 4),
+        (EnchantmentType.rejuvenate, 2),
+        (EnchantmentType.ender_slayer, 4),
+        (EnchantmentType.protection, 5),
+        (EnchantmentType.turbo_warts, 2),
+        (EnchantmentType.infinite_quiver, 6),
+        (EnchantmentType.turbo_melon, 1),
+        (EnchantmentType.projectile_protection, 6),
+        (EnchantmentType.turbo_cactus, 1),
+        (EnchantmentType.turbo_carrot, 1),
+        (EnchantmentType.respite, 2),
+        (EnchantmentType.turbo_wheat, 2),
+        (EnchantmentType.turbo_potato, 1),
+        (EnchantmentType.ultimate_bank, 1),
+        (EnchantmentType.ultimate_combo, 2),
+        (EnchantmentType.turbo_cane, 1),
+        (EnchantmentType.scavenger, 2),
+        (EnchantmentType.ultimate_no_pain_no_gain, 3),
+        (EnchantmentType.chance, 2),
+        (EnchantmentType.first_strike, 3),
+        (EnchantmentType.ultimate_bank, 4),
+        (EnchantmentType.growth, 5),
+        (EnchantmentType.frail, 4),
+        (EnchantmentType.luck_of_the_sea, 5),
+        (EnchantmentType.ender_slayer, 2),
+        (EnchantmentType.feather_falling, 5),
+        (EnchantmentType.lethality, 4),
+        (EnchantmentType.ultimate_bank, 3),
+        (EnchantmentType.protection, 4),
+        (EnchantmentType.efficiency, 5),
+        (EnchantmentType.punch, 1),
+        (EnchantmentType.luck, 4),
+        (EnchantmentType.silk_touch, 1),
+        (EnchantmentType.ultimate_jerry, 2),
+        (EnchantmentType.looting, 2),
+        (EnchantmentType.rainbow, 1),
+        (EnchantmentType.respite, 1),
+        (EnchantmentType.turbo_wheat, 1),
+        (EnchantmentType.turbo_coco, 1),
+        (EnchantmentType.protection, 1),
+        (EnchantmentType.ultimate_combo, 1),
+        (EnchantmentType.knockback, 1),
+        (EnchantmentType.fortune, 3),
+        (EnchantmentType.frost_walker, 1),
+        (EnchantmentType.cubism, 4),
+        (EnchantmentType.rejuvenate, 1),
+        (EnchantmentType.vampirism, 4),
+        (EnchantmentType.giant_killer, 4),
+        (EnchantmentType.projectile_protection, 5),
+        (EnchantmentType.lure, 5),
+        (EnchantmentType.magnet, 5),
+        (EnchantmentType.prosecute, 4),
+        (EnchantmentType.impaling, 2),
+        (EnchantmentType.execute, 4),
+        (EnchantmentType.syphon, 2),
+        (EnchantmentType.critical, 4),
+        (EnchantmentType.bane_of_arthropods, 6),
+        (EnchantmentType.ultimate_jerry, 1),
+        (EnchantmentType.ultimate_bank, 2),
+        (EnchantmentType.aiming, 4),
+        (EnchantmentType.angler, 4),
+        (EnchantmentType.triple_strike, 3),
+        (EnchantmentType.respiration, 2),
+        (EnchantmentType.life_steal, 2),
+        (EnchantmentType.experience, 2),
+        (EnchantmentType.titan_killer, 4),
+        (EnchantmentType.power, 1),
+        (EnchantmentType.blast_protection, 5),
+        (EnchantmentType.projectile_protection, 3),
+        (EnchantmentType.titan_killer, 5),
+        (EnchantmentType.thorns, 2),
+        (EnchantmentType.fire_protection, 4),
+        (EnchantmentType.fire_protection, 5),
+        (EnchantmentType.ultimate_no_pain_no_gain, 2),
+        (EnchantmentType.magnet, 1),
+        (EnchantmentType.thunderlord, 4),
+        (EnchantmentType.sharpness, 3),
+        (EnchantmentType.efficiency, 4),
+        (EnchantmentType.protection, 2),
+        (EnchantmentType.snipe, 2),
+        (EnchantmentType.fortune, 2),
+        (EnchantmentType.infinite_quiver, 3),
+        (EnchantmentType.blast_protection, 4),
+        (EnchantmentType.efficiency, 3),
+        (EnchantmentType.ultimate_no_pain_no_gain, 1),
+        (EnchantmentType.scavenger, 1),
+        (EnchantmentType.efficiency, 2),
+        (EnchantmentType.feather_falling, 4),
+        (EnchantmentType.smite, 4),
+        (EnchantmentType.harvesting, 2),
+        (EnchantmentType.venomous, 2),
+        (EnchantmentType.infinite_quiver, 4),
+        (EnchantmentType.fire_protection, 1),
+        (EnchantmentType.projectile_protection, 4),
+        (EnchantmentType.infinite_quiver, 1),
+        (EnchantmentType.projectile_protection, 2),
+        (EnchantmentType.harvesting, 3),
+        (EnchantmentType.smite, 3),
+        (EnchantmentType.blast_protection, 3),
+        (EnchantmentType.smite, 2),
+        (EnchantmentType.impaling, 1)
+    };
 
     private static long GetReferencePrice(Auction auction)
     {

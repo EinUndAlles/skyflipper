@@ -93,6 +93,28 @@ public class ReferenceParityTests
     }
 
     [Test]
+    public void SelectBestEnchantMatchesWorthOrder()
+    {
+        var enchants = new List<Enchantment>
+        {
+            new(EnchantmentType.growth, 5),
+            new(EnchantmentType.ultimate_chimera, 1),
+            new(EnchantmentType.ultimate_chimera, 2),
+            new(EnchantmentType.smite, 7)
+        };
+
+        var method = typeof(ReferenceAuctionService)
+            .GetMethod("SelectBestEnchant", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        Assert.That(method, Is.Not.Null, "SelectBestEnchant method not found.");
+
+        var result = (Enchantment)method!.Invoke(null, new object[] { enchants })!;
+
+        Assert.That(result.Type, Is.EqualTo(EnchantmentType.ultimate_chimera));
+        Assert.That(result.Level, Is.EqualTo(2));
+    }
+
+    [Test]
     public async Task GetRelevantAuctionsKeepsOnlyExactEnchantParityCase()
     {
         var dbName = Guid.NewGuid().ToString("N");

@@ -44,10 +44,18 @@ alwaysApply: false
 - Our `ReferenceAuctionService:GetSelect` fetches 8x the limit and filters in-memory.
 - This is a major performance difference at scale.
 
+## 14. SQL-Level NBT Filters Are Required For Scale
+- Apply NBTLookup filters in IQueryable before sampling candidates.
+- Keep in-memory match checks for parity only after DB-level pruning.
+
 ## 7. SelectBestEnchant Uses WorthOrder
 - Reference has a 100+ entry `WorthOrder`/`WorthOrderLevels` priority list in Constants.cs.
 - Our version uses `OrderByDescending(Level).ThenBy(Type)`.
 - In reduced-mode matching, this can select a different "best" enchant, causing reference set divergence.
+
+## 13. Keep WorthOrder Lists in Sync
+- WorthOrder and WorthOrderLevels should be copied verbatim from `dev/Data/Flipper/Constants.cs`.
+- If EnchantmentType names change, update enum names or add mapping.
 
 ## 8. ShouldPetItemMatch Requires exp Guard
 - Reference checks `flatNbt.ContainsKey("exp")` as a guard before matching pet items.

@@ -9,8 +9,8 @@
 ## Remaining Tasks
 1. Align CacheKey format with Coflnet raw concat (P0). (done)
 2. Fix `ShouldPetItemMatch` exp guard (P0). (done)
-3. Port `SelectBestEnchant` WorthOrder/WorthOrderLevels (P0).
-4. Move NBT filtering to SQL-level in `ReferenceAuctionService` (P1).
+3. Port `SelectBestEnchant` WorthOrder/WorthOrderLevels (P0). (done)
+4. Move NBT filtering to SQL-level in `ReferenceAuctionService` (P1). (done)
 5. Add debug endpoints in `FlipsController` (P3).
 6. Add Prometheus metrics for flip detection loop (P3).
 7. Capture and add real-data regression fixtures to tests (P3).

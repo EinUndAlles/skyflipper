@@ -16,8 +16,6 @@ Parity fixes from `FULL_PARITY_REVIEW.md` with P0 accuracy gaps first.
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
-- Port `SelectBestEnchant` WorthOrder/WorthOrderLevels.
-- Add SQL-level NBT filtering.
 - Add debug endpoints for flip reference inspection.
 - Add Prometheus metrics for runtime monitoring.
 - Expand parity tests with live-data fixtures.

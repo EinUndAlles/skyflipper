@@ -32,9 +32,9 @@ alwaysApply: false
 **Fix:** BuildNbtString now concatenates raw flattened NBT and only filters ignored keys (and gems when requested).
 
 ### 5. SQL-Level NBT Filtering Missing (P1)
-**Status:** Open — Reference builds IQueryable with NBTLookup joins; we fetch 8x limit and filter in-memory.
-**Context:** Much slower at scale (>100k sold auctions). Reference uses `AddNBTSelect`/`AddNbtRangeSelect` for DB-level filtering.
-**Fix:** Rewrite GetSelect to use IQueryable NBTLookup filtering instead of in-memory.
+**Status:** Resolved — GetSelect now applies NBTLookup filters at DB level before candidate sampling.
+**Context:** Reference uses `AddNBTSelect`/`AddNbtRangeSelect` for DB-level filtering.
+**Fix:** Added NBTKey/NBTValue-backed IQueryable filters for range and exact matches.
 
 ### 8. Missing Pet Exp Guard (P0)
 **Status:** Resolved — `ShouldPetItemMatch` now requires `exp` key.
@@ -50,3 +50,8 @@ alwaysApply: false
 **Status:** Expected limitation.
 **Context:** Reference sets lost on restart; not shared across instances. Coflnet uses Redis with 2h TTL.
 **Fix:** Consider adding Redis-backed IDistributedCache.
+
+### 9. SelectBestEnchant Ordering (P0)
+**Status:** Resolved — WorthOrder/WorthOrderLevels ported from reference.
+**Context:** Reduced-mode matching could select the wrong enchant with simple sorting.
+**Fix:** SelectBestEnchant now checks WorthOrderLevels then WorthOrder.

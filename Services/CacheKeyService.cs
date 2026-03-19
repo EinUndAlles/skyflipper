@@ -253,7 +253,7 @@ public class CacheKeyService
         { EnchantmentType.turbo_cactus, 5 },
         { EnchantmentType.turbo_cane, 5 },
         { EnchantmentType.turbo_carrot, 5 },
-        { EnchantmentType.turbo_cocoa, 5 },
+        { EnchantmentType.turbo_coco, 5 },
         { EnchantmentType.turbo_melon, 5 },
         { EnchantmentType.turbo_mushrooms, 5 },
         { EnchantmentType.turbo_potato, 5 },
