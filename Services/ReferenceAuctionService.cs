@@ -46,6 +46,7 @@ public class ReferenceAuctionService
     private readonly IMemoryCache _memoryCache;
     private readonly CacheKeyService _cacheKeyService;
     private readonly ComponentValueService _componentValueService;
+    private readonly NbtLookupResolver _nbtLookupResolver;
     private readonly ILogger<ReferenceAuctionService> _logger;
 
     public ReferenceAuctionService(
@@ -53,12 +54,14 @@ public class ReferenceAuctionService
         IMemoryCache memoryCache,
         CacheKeyService cacheKeyService,
         ComponentValueService componentValueService,
+        NbtLookupResolver nbtLookupResolver,
         ILogger<ReferenceAuctionService> logger)
     {
         _scopeFactory = scopeFactory;
         _memoryCache = memoryCache;
         _cacheKeyService = cacheKeyService;
         _componentValueService = componentValueService;
+        _nbtLookupResolver = nbtLookupResolver;
         _logger = logger;
     }
 
@@ -380,13 +383,12 @@ public class ReferenceAuctionService
             .Include(a => a.Bids)
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
-                .ThenInclude(n => n.NBTKey)
-            .Include(a => a.NBTLookups)
                 .ThenInclude(n => n.NBTValue)
-            .OrderByDescending(a => a.Status == AuctionStatus.SOLD && a.SoldAt.HasValue ? a.SoldAt : a.End);
+            .OrderByDescending(a => a.Status == AuctionStatus.SOLD && a.SoldAt.HasValue ? a.SoldAt : a.End)
+            .AsQueryable();
 
         var targetFlatNbt = GetFlatNbt(auction);
-        var select = baseQuery;
+        IQueryable<Auction> select = baseQuery;
 
         var recombMatters = CacheKeyService.DoesRecombMatter(auction.Category, auction.Tag);
         if (auction.Tag != "ENCHANTED_BOOK" && (recombMatters || CacheKeyService.IsPet(auction.Tag)))
@@ -415,295 +417,99 @@ public class ReferenceAuctionService
             select = select.Where(a => a.ItemName == clearedName);
         }
 
-        var keyIdCache = new Dictionary<string, short?>(StringComparer.OrdinalIgnoreCase);
-        var valueIdCache = new Dictionary<(short KeyId, string Value), int>();
-
-        async Task<short?> GetKeyIdAsync(string keyName)
-        {
-            if (keyIdCache.TryGetValue(keyName, out var cached))
-                return cached;
-
-            var key = await dbContext.NBTKeys.AsNoTracking()
-                .FirstOrDefaultAsync(k => k.KeyName == keyName, stoppingToken);
-            var id = key?.Id;
-            keyIdCache[keyName] = id;
-            return id;
-        }
-
-        async Task<int?> GetValueIdAsync(short? keyId, string value)
-        {
-            if (!keyId.HasValue)
-                return null;
-
-            var cacheKey = (keyId.Value, value);
-            if (valueIdCache.TryGetValue(cacheKey, out var cached))
-                return cached;
-
-            var valueEntity = await dbContext.NBTValues.AsNoTracking()
-                .FirstOrDefaultAsync(v => v.KeyId == keyId.Value && v.Value == value, stoppingToken);
-
-            if (valueEntity?.Id is int id)
-                valueIdCache[cacheKey] = id;
-
-            return valueEntity?.Id;
-        }
-
-        async Task<IQueryable<Auction>> AddNbtSelectAsync(IQueryable<Auction> query, string keyName)
-        {
-            var keyId = await GetKeyIdAsync(keyName);
-            if (!targetFlatNbt.TryGetValue(keyName, out var targetValue))
-            {
-                return keyId.HasValue
-                    ? query.Where(a => !a.NBTLookups.Any(n => (n.KeyId == keyId.Value || n.Key == keyName)))
-                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == keyName));
-            }
-
-            if (!long.TryParse(targetValue, out var numericTarget))
-            {
-                var valueId = await GetValueIdAsync(keyId, targetValue);
-                if (keyId.HasValue)
-                {
-                    if (valueId.HasValue)
-                    {
-                        return query.Where(a => a.NBTLookups.Any(n =>
-                            (n.KeyId == keyId.Value || n.Key == keyName) &&
-                            ((n.ValueId.HasValue && n.ValueId.Value == valueId.Value) ||
-                             (n.ValueString != null && n.ValueString == targetValue))));
-                    }
-
-                    return query.Where(a => a.NBTLookups.Any(n =>
-                        (n.KeyId == keyId.Value || n.Key == keyName) &&
-                        (n.ValueString != null && n.ValueString == targetValue)));
-                }
-
-                return query.Where(a => a.NBTLookups.Any(n =>
-                    n.Key == keyName && n.ValueString != null && n.ValueString == targetValue));
-            }
-
-            var lowerLimit = (long)(numericTarget * 0.8);
-            return keyId.HasValue
-                ? query.Where(a => a.NBTLookups.Any(n =>
-                    (n.KeyId == keyId.Value || n.Key == keyName) &&
-                    n.ValueNumeric.HasValue &&
-                    n.ValueNumeric <= numericTarget && n.ValueNumeric > lowerLimit))
-                : query.Where(a => a.NBTLookups.Any(n =>
-                    n.Key == keyName &&
-                    n.ValueNumeric.HasValue &&
-                    n.ValueNumeric <= numericTarget && n.ValueNumeric > lowerLimit));
-        }
-
-        async Task<IQueryable<Auction>> AddNbtRangeSelectAsync(IQueryable<Auction> query, string keyName, long maxDiff, int percentIncrease)
-        {
-            var keyId = await GetKeyIdAsync(keyName);
-            if (!targetFlatNbt.TryGetValue(keyName, out var targetValue))
-            {
-                return keyId.HasValue
-                    ? query.Where(a => !a.NBTLookups.Any(n => (n.KeyId == keyId.Value || n.Key == keyName)))
-                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == keyName));
-            }
-
-            if (!long.TryParse(targetValue, out var numericTarget))
-                return query;
-
-            maxDiff += numericTarget * percentIncrease / 100;
-            var min = numericTarget - maxDiff;
-            var max = numericTarget + maxDiff;
-
-            return keyId.HasValue
-                ? query.Where(a => a.NBTLookups.Any(n =>
-                    (n.KeyId == keyId.Value || n.Key == keyName) &&
-                    n.ValueNumeric.HasValue &&
-                    n.ValueNumeric > min && n.ValueNumeric < max))
-                : query.Where(a => a.NBTLookups.Any(n =>
-                    n.Key == keyName &&
-                    n.ValueNumeric.HasValue &&
-                    n.ValueNumeric > min && n.ValueNumeric < max));
-        }
-
-        async Task<IQueryable<Auction>> AddCandySelectAsync(IQueryable<Auction> query)
-        {
-            if (!targetFlatNbt.TryGetValue("candyUsed", out var candyValue))
-                return query;
-
-            if (targetFlatNbt.TryGetValue("exp", out var expString) &&
-                double.TryParse(expString, out var exp) &&
-                exp > 24_000_000 &&
-                targetFlatNbt.ContainsKey("skin"))
-            {
-                var heldItemKeyId = await GetKeyIdAsync("heldItem");
-                return heldItemKeyId.HasValue
-                    ? query.Where(a => !a.NBTLookups.Any(n => n.KeyId == heldItemKeyId.Value || n.Key == "heldItem"))
-                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == "heldItem"));
-            }
-
-            if (!long.TryParse(candyValue, out var numericCandy))
-                return query;
-
-            var keyId = await GetKeyIdAsync("candyUsed");
-            if (numericCandy > 0)
-            {
-                return keyId.HasValue
-                    ? query.Where(a => a.NBTLookups.Any(n =>
-                        (n.KeyId == keyId.Value || n.Key == "candyUsed") &&
-                        n.ValueNumeric.HasValue && n.ValueNumeric > 0))
-                    : query.Where(a => a.NBTLookups.Any(n =>
-                        n.Key == "candyUsed" && n.ValueNumeric.HasValue && n.ValueNumeric > 0));
-            }
-
-            return keyId.HasValue
-                ? query.Where(a => a.NBTLookups.Any(n =>
-                    (n.KeyId == keyId.Value || n.Key == "candyUsed") &&
-                    n.ValueNumeric.HasValue && n.ValueNumeric == 0))
-                : query.Where(a => a.NBTLookups.Any(n =>
-                    n.Key == "candyUsed" && n.ValueNumeric.HasValue && n.ValueNumeric == 0));
-        }
-
-        async Task<IQueryable<Auction>> AddPetItemSelectAsync(IQueryable<Auction> query)
-        {
-            if (targetFlatNbt.TryGetValue("heldItem", out var heldItem))
-            {
-                var keyId = await GetKeyIdAsync("heldItem");
-                if (CacheKeyService.ShouldPetItemMatch(targetFlatNbt, auction.StartingBid))
-                {
-                    var valueId = await GetValueIdAsync(keyId, heldItem);
-                    if (keyId.HasValue)
-                    {
-                        if (valueId.HasValue)
-                        {
-                            return query.Where(a => a.NBTLookups.Any(n =>
-                                (n.KeyId == keyId.Value || n.Key == "heldItem") &&
-                                ((n.ValueId.HasValue && n.ValueId.Value == valueId.Value) ||
-                                 (n.ValueString != null && n.ValueString == heldItem))));
-                        }
-
-                        return query.Where(a => a.NBTLookups.Any(n =>
-                            (n.KeyId == keyId.Value || n.Key == "heldItem") &&
-                            n.ValueString != null && n.ValueString == heldItem));
-                    }
-
-                    return query.Where(a => a.NBTLookups.Any(n =>
-                        n.Key == "heldItem" && n.ValueString != null && n.ValueString == heldItem));
-                }
-
-                if (keyId.HasValue)
-                {
-                    var valuableIds = await dbContext.NBTValues.AsNoTracking()
-                        .Where(v => v.KeyId == keyId.Value && ValuablePetItems.Contains(v.Value))
-                        .Select(v => v.Id)
-                        .ToListAsync(stoppingToken);
-
-                    if (valuableIds.Count > 0)
-                    {
-                        return query.Where(a => !a.NBTLookups.Any(n =>
-                            (n.KeyId == keyId.Value || n.Key == "heldItem") &&
-                            ((n.ValueId.HasValue && valuableIds.Contains(n.ValueId.Value)) ||
-                             (n.ValueString != null && ValuablePetItems.Contains(n.ValueString)))));
-                    }
-                }
-
-                return query.Where(a => !a.NBTLookups.Any(n =>
-                    (keyId.HasValue ? (n.KeyId == keyId.Value || n.Key == "heldItem") : n.Key == "heldItem") &&
-                    n.ValueString != null && ValuablePetItems.Contains(n.ValueString)));
-            }
-
-            if (targetFlatNbt.ContainsKey("candyUsed"))
-            {
-                var keyId = await GetKeyIdAsync("heldItem");
-                return keyId.HasValue
-                    ? query.Where(a => !a.NBTLookups.Any(n => n.KeyId == keyId.Value || n.Key == "heldItem"))
-                    : query.Where(a => !a.NBTLookups.Any(n => n.Key == "heldItem"));
-            }
-
-            return query;
-        }
+        var nbtQuery = new NbtQueryHelper(dbContext, _nbtLookupResolver, auction, targetFlatNbt, ValuablePetItems, stoppingToken);
 
         if (auction.Tag.EndsWith("MIDAS_STAFF", StringComparison.Ordinal) || auction.Tag.EndsWith("MIDAS_SWORD", StringComparison.Ordinal))
         {
-            select = await AddNbtRangeSelectAsync(select, "winning_bid", 2_000_000, 3);
-            select = await AddNbtRangeSelectAsync(select, "additional_coins", 2_000_000, 3);
+            select = await nbtQuery.AddNbtRangeSelectAsync(select, "winning_bid", 2_000_000, 3);
+            select = await nbtQuery.AddNbtRangeSelectAsync(select, "additional_coins", 2_000_000, 3);
             oldest -= TimeSpan.FromDays(5);
         }
 
         if (targetFlatNbt.ContainsKey("seconds_held"))
-            select = await AddNbtRangeSelectAsync(select, "seconds_held", 20_000, 10);
+            select = await nbtQuery.AddNbtRangeSelectAsync(select, "seconds_held", 20_000, 10);
 
         if (auction.Tag.Contains("HOE", StringComparison.Ordinal) || targetFlatNbt.ContainsKey("farming_for_dummies_count"))
-            select = await AddNbtSelectAsync(select, "farming_for_dummies_count");
+            select = await nbtQuery.AddNbtSelectAsync(select, "farming_for_dummies_count");
 
         if (auction.Tag == "CAKE_SOUL")
-            select = await AddNbtSelectAsync(select, "captured_player");
+            select = await nbtQuery.AddNbtSelectAsync(select, "captured_player");
 
         if (targetFlatNbt.ContainsKey("rarity_upgrades") && recombMatters)
-            select = await AddNbtSelectAsync(select, "rarity_upgrades");
+            select = await nbtQuery.AddNbtSelectAsync(select, "rarity_upgrades");
 
         if (auction.Tag == "ASPECT_OF_THE_VOID" || auction.Tag == "ASPECT_OF_THE_END")
-            select = await AddNbtSelectAsync(select, "ethermerge");
+            select = await nbtQuery.AddNbtSelectAsync(select, "ethermerge");
 
         if (auction.Tag == "NECRONS_LADDER")
-            select = await AddNbtSelectAsync(select, "handles_found");
+            select = await nbtQuery.AddNbtSelectAsync(select, "handles_found");
 
         if (auction.Tag == "DIANAS_BOOKSHELF")
-            select = await AddNbtSelectAsync(select, "chimera_found");
+            select = await nbtQuery.AddNbtSelectAsync(select, "chimera_found");
 
         if (targetFlatNbt.ContainsKey("edition"))
-            select = await AddNbtRangeSelectAsync(select, "edition", 100, 10);
+            select = await nbtQuery.AddNbtRangeSelectAsync(select, "edition", 100, 10);
 
         if (targetFlatNbt.ContainsKey("new_years_cake"))
-            select = await AddNbtSelectAsync(select, "new_years_cake");
+            select = await nbtQuery.AddNbtSelectAsync(select, "new_years_cake");
 
         if (targetFlatNbt.ContainsKey("dungeon_item_level") && !reduced)
-            select = await AddNbtSelectAsync(select, "dungeon_item_level");
+            select = await nbtQuery.AddNbtSelectAsync(select, "dungeon_item_level");
 
         if (targetFlatNbt.ContainsKey("candyUsed"))
-            select = await AddCandySelectAsync(select);
+            select = await nbtQuery.AddCandySelectAsync(select);
 
         foreach (var exactKey in new[] { "art_of_war_count", "MUSIC", "ENCHANT", "DRAGON", "TIDAL", "ability_scroll", "party_hat_emoji" })
         {
             if (targetFlatNbt.ContainsKey(exactKey))
-                select = await AddNbtSelectAsync(select, exactKey);
+                select = await nbtQuery.AddNbtSelectAsync(select, exactKey);
         }
 
         if (auction.Tag.Contains("FINAL_DESTINATION", StringComparison.Ordinal))
-            select = await AddNbtRangeSelectAsync(select, "eman_kills", 1000, 10);
+            select = await nbtQuery.AddNbtRangeSelectAsync(select, "eman_kills", 1000, 10);
 
         if (targetFlatNbt.Keys.Any(k => AttributeKeys.Contains(k)))
         {
             foreach (var attributeKey in AttributeKeys)
-                select = await AddNbtSelectAsync(select, attributeKey);
+                select = await nbtQuery.AddNbtSelectAsync(select, attributeKey);
         }
 
         if (auction.Tag.Contains("_DRILL", StringComparison.Ordinal))
         {
-            select = await AddNbtSelectAsync(select, "drill_part_engine");
-            select = await AddNbtSelectAsync(select, "drill_part_fuel_tank");
-            select = await AddNbtSelectAsync(select, "drill_part_upgrade_module");
+            select = await nbtQuery.AddNbtSelectAsync(select, "drill_part_engine");
+            select = await nbtQuery.AddNbtSelectAsync(select, "drill_part_fuel_tank");
+            select = await nbtQuery.AddNbtSelectAsync(select, "drill_part_upgrade_module");
         }
 
-        select = await AddPetItemSelectAsync(select);
+        select = await nbtQuery.AddPetItemSelectAsync(select);
 
         if (targetFlatNbt.ContainsKey("skin"))
-            select = await AddNbtSelectAsync(select, "skin");
+            select = await nbtQuery.AddNbtSelectAsync(select, "skin");
 
         if (targetFlatNbt.ContainsKey("color") || CacheKeyService.IsArmor(auction.Tag))
         {
-            select = await AddNbtSelectAsync(select, "color");
-            select = await AddNbtSelectAsync(select, "dye_item");
+            select = await nbtQuery.AddNbtSelectAsync(select, "color");
+            select = await nbtQuery.AddNbtSelectAsync(select, "dye_item");
         }
 
         foreach (var key in targetFlatNbt.Keys.Where(k => k.EndsWith("_kills", StringComparison.Ordinal)))
-            select = await AddNbtRangeSelectAsync(select, key, 0, 20);
+            select = await nbtQuery.AddNbtRangeSelectAsync(select, key, 0, 20);
 
         if (targetFlatNbt.ContainsKey("unlocked_slots"))
         {
-            select = await AddNbtSelectAsync(select, "unlocked_slots");
+            select = await nbtQuery.AddNbtSelectAsync(select, "unlocked_slots");
             select = select.Where(a => a.ItemCreatedAt > UnlockedIntroduction);
         }
 
         if (targetFlatNbt.ContainsKey("gemstone_slots"))
-            select = await AddNbtSelectAsync(select, "gemstone_slots");
+            select = await nbtQuery.AddNbtSelectAsync(select, "gemstone_slots");
 
         var roughLimit = Math.Max(limit * 8, 200);
-        var candidates = await select.Take(roughLimit).ToListAsync(stoppingToken);
+        var candidates = await select
+            .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTValue)
+            .Take(roughLimit)
+            .ToListAsync(stoppingToken);
 
         var filtered = candidates
             .Where(candidate => MatchesCandidate(candidate, auction, clearedName, targetFlatNbt, ultimate, relevantEnchants, reduced))
@@ -1042,14 +848,11 @@ public class ReferenceAuctionService
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var lookup in auction.NBTLookups)
         {
-            var key = lookup.NBTKey?.KeyName ?? lookup.Key;
+            var key = lookup.NBTKey?.KeyName;
             if (string.IsNullOrEmpty(key))
                 continue;
 
-            var value = lookup.ValueString ??
-                        lookup.NBTValue?.Value ??
-                        lookup.ValueNumeric?.ToString();
-
+            var value = lookup.NBTValue?.Value ?? lookup.ValueNumeric?.ToString();
             if (!string.IsNullOrEmpty(value))
                 dict[key] = value;
         }

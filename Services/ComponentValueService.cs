@@ -49,7 +49,7 @@ public class ComponentValueService
         
         // Find all gem slots with PERFECT or FLAWLESS quality
         var relevantGems = auction.NBTLookups
-            .Where(n => n.ValueString == "PERFECT" || n.ValueString == "FLAWLESS")
+            .Where(n => n.NBTValue != null && (n.NBTValue.Value == "PERFECT" || n.NBTValue.Value == "FLAWLESS"))
             .ToList();
 
         foreach (var gem in relevantGems)
@@ -75,28 +75,28 @@ public class ComponentValueService
                 var gemTypeKey = gem.NBTKey.KeyName + "_gem";
                 var gemTypeEntry = auction.NBTLookups
                     .FirstOrDefault(n => n.NBTKey?.KeyName.Equals(gemTypeKey, StringComparison.OrdinalIgnoreCase) == true);
-                
-                if (gemTypeEntry?.ValueString != null)
+
+                if (gemTypeEntry?.NBTValue?.Value != null)
                 {
-                    gemType = gemTypeEntry.ValueString.ToUpper();
+                    gemType = gemTypeEntry.NBTValue.Value.ToUpper();
                 }
             }
 
             if (gemType == null) continue;
 
-            var priceKey = $"{gem.ValueString}_{gemType}_GEM";
+            var priceKey = $"{gem.NBTValue!.Value}_{gemType}_GEM";
 
             if (prices.TryGetValue(priceKey, out long price))
             {
                 var val = price;
                 // Reference: GemPriceService.cs lines 63-66 - fee deduction
-                if (gem.ValueString == "PERFECT") val -= 500_000;
-                else if (gem.ValueString == "FLAWLESS") val -= 100_000;
+                if (gem.NBTValue!.Value == "PERFECT") val -= 500_000;
+                else if (gem.NBTValue!.Value == "FLAWLESS") val -= 100_000;
 
                 if (val > 0)
                 {
                     totalWorth += val;
-                    breakdownParts.Add($"{gem.ValueString} {gemType}: +{FormatPrice(val)}");
+                    breakdownParts.Add($"{gem.NBTValue!.Value} {gemType}: +{FormatPrice(val)}");
                 }
             }
         }

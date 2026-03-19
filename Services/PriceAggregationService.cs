@@ -113,6 +113,8 @@ public class PriceAggregationService : BackgroundService
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTKey)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(nbt => nbt.NBTValue)
             .Include(a => a.Bids) // For buyer deduplication
             .ToListAsync(stoppingToken);
 
@@ -204,6 +206,8 @@ public class PriceAggregationService : BackgroundService
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTKey)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(nbt => nbt.NBTValue)
             .Include(a => a.Bids) // For buyer deduplication
             .ToListAsync(stoppingToken);
 
@@ -577,8 +581,11 @@ public class PriceAggregationService : BackgroundService
         }
 
         // Fallback to NBTLookups
-        return auction.NBTLookups?.Any(n => 
-            n.NBTKey?.KeyName?.Equals("unlocked_slots", StringComparison.OrdinalIgnoreCase) == true) == true;
+        if (auction.NBTLookups == null || auction.NBTLookups.Count == 0)
+            return false;
+
+        return auction.NBTLookups.Any(n =>
+            n.NBTKey?.KeyName?.Equals("unlocked_slots", StringComparison.OrdinalIgnoreCase) == true);
     }
 
     /// <summary>

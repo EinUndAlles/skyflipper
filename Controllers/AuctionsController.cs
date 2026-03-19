@@ -247,8 +247,6 @@ public class AuctionsController : ControllerBase
         var auction = await _context.Auctions
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
-                .ThenInclude(nbt => nbt.NBTKey)
-            .Include(a => a.NBTLookups)
                 .ThenInclude(nbt => nbt.NBTValue)
             .Include(a => a.Bids)
             .FirstOrDefaultAsync(a => a.Uuid == uuid.Replace("-", ""));
@@ -303,10 +301,9 @@ public class AuctionsController : ControllerBase
             Enchantments = auction.Enchantments,
             NbtLookups = auction.NBTLookups?.Select(n => new
             {
-                Key = n.NBTKey?.KeyName ?? n.Key,
+                Key = n.NBTKey?.KeyName,
                 ValueNumeric = n.ValueNumeric,
-                ValueString = n.ValueString,
-                Value = n.NBTValue?.Value
+                ValueString = n.NBTValue?.Value
             }).ToArray(),
             Bids = auction.Bids
         };

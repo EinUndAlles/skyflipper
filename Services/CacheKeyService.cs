@@ -519,9 +519,7 @@ public class CacheKeyService
         {
             if (nbt.NBTKey == null) continue;
             var key = nbt.NBTKey.KeyName;
-            var value = !string.IsNullOrEmpty(nbt.ValueString) 
-                ? nbt.ValueString 
-                : nbt.ValueNumeric?.ToString() ?? "";
+            var value = nbt.NBTValue?.Value ?? nbt.ValueNumeric?.ToString() ?? "";
             nbtDict[key] = value;
         }
 
@@ -696,7 +694,7 @@ public class CacheKeyService
             catch { }
         }
 
-        return auction.NBTLookups?.Any(n => 
+        return auction.NBTLookups?.Any(n =>
             n.NBTKey?.KeyName?.StartsWith("MASTER_CRYPT", StringComparison.OrdinalIgnoreCase) == true) == true;
     }
 

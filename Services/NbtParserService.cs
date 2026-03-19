@@ -819,7 +819,6 @@ public class NbtParserService
             {
                 AuctionId = auctionId,
                 KeyId = keyId,
-                Key = keyName,
                 ValueNumeric = value
             });
         }
@@ -834,9 +833,7 @@ public class NbtParserService
             {
                 AuctionId = auctionId,
                 KeyId = keyId,
-                Key = keyName,
                 ValueId = valueId,
-                ValueString = value  // Keep temporarily for migration compatibility
             });
         }
 

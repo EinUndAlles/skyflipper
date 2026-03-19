@@ -51,6 +51,26 @@ alwaysApply: false
 **Context:** Reference sets lost on restart; not shared across instances. Coflnet uses Redis with 2h TTL.
 **Fix:** Consider adding Redis-backed IDistributedCache.
 
+### 13. AveragePrice.CacheKey Length (P1)
+**Status:** Open — still `varchar(200)`.
+**Context:** Raw cache keys can exceed 200 chars, risk of truncation.
+**Fix:** Widen column length (and any indexes) to match expected max key length.
+
+### 10. Legacy NBTLookup Fields Removed
+**Status:** Completed — `Key` and `ValueString` removed from `NBTLookups`.
+**Context:** Only KeyId/ValueId now used for NBT filtering and display.
+**Fix:** Migration `RemoveLegacyNbtLookupFields` drops columns and legacy indexes.
+
+### 11. NBT Query Helper Extraction
+**Status:** Completed — SQL-level NBT filtering extracted into `NbtQueryHelper`.
+**Context:** Previously embedded in `ReferenceAuctionService` and hard to maintain.
+**Fix:** Helper encapsulates exact/range/pet/candy selection logic.
+
+### 12. NBT Lookup Resolver Centralized
+**Status:** Completed — `NbtLookupResolver` now handles KeyId/ValueId lookups with caching.
+**Context:** Duplicate DB queries existed across NBT filters.
+**Fix:** Resolver is injected and reused.
+
 ### 9. SelectBestEnchant Ordering (P0)
 **Status:** Resolved — WorthOrder/WorthOrderLevels ported from reference.
 **Context:** Reduced-mode matching could select the wrong enchant with simple sorting.

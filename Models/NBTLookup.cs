@@ -23,7 +23,7 @@ public class NBTLookup
     public Auction Auction { get; set; } = null!;
 
     /// <summary>
-    /// The NBT key ID (normalized). Replaces Key for storage efficiency.
+    /// The NBT key ID (normalized).
     /// E.g., KeyId=42 refers to "dungeon_item_level" in NBTKeys table.
     /// </summary>
     public short? KeyId { get; set; }
@@ -33,28 +33,15 @@ public class NBTLookup
     /// </summary>
     public NBTKey? NBTKey { get; set; }
 
-    /// <summary>
-    /// DEPRECATED: The NBT key name (e.g., "dungeon_item_level").
-    /// Keeping temporarily for migration. Will be removed after migrating to KeyId.
-    /// </summary>
-    [MaxLength(50)]
-    public string? Key { get; set; }
 
     /// <summary>
     /// Numeric value if the NBT value is a number.
     /// </summary>
     public long? ValueNumeric { get; set; }
 
-    /// <summary>
-    /// DEPRECATED: String value (e.g., "RUBY" for gem type).
-    /// Keeping temporarily for migration. Will be removed after migrating to ValueId.
-    /// </summary>
-    [MaxLength(100)]
-    public string? ValueString { get; set; }
 
     /// <summary>
     /// Reference to deduplicated string value in NBTValues table.
-    /// Replaces ValueString for 90% storage savings.
     /// </summary>
     public int? ValueId { get; set; }
 

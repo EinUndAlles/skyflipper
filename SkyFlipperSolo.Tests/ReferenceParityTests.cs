@@ -943,9 +943,11 @@ public class ReferenceParityTests
         {
             clone.NBTLookups.Add(new NBTLookup
             {
-                Key = lookup.Key,
-                ValueString = lookup.ValueString,
-                ValueNumeric = lookup.ValueNumeric
+                KeyId = lookup.KeyId,
+                ValueId = lookup.ValueId,
+                ValueNumeric = lookup.ValueNumeric,
+                NBTKey = lookup.NBTKey,
+                NBTValue = lookup.NBTValue
             });
         }
 

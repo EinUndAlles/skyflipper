@@ -48,6 +48,22 @@ alwaysApply: false
 - Apply NBTLookup filters in IQueryable before sampling candidates.
 - Keep in-memory match checks for parity only after DB-level pruning.
 
+## 15. Remove Legacy NBTLookup Columns
+- Once KeyId/ValueId coverage is in place, remove `Key` and `ValueString` to simplify queries.
+- Ensure all code paths use `NBTKey.KeyName` and `NBTValue.Value`.
+
+## 16. Encapsulate NBT Query Logic
+- Use a dedicated helper (`NbtQueryHelper`) for SQL-level NBT filtering.
+- Keep the helper cohesive to reduce parity drift and simplify testing.
+
+## 17. Cache NBT Key/Value IDs
+- Use `NbtLookupResolver` to centralize key/value ID lookup with caching.
+- Avoid ad-hoc DB queries in filtering hot paths.
+
+## 18. CacheKey Column Length Matters
+- Raw cache keys can exceed 200 chars once NBT concatenation is enabled.
+- Ensure `AveragePrice.CacheKey` is sized to avoid truncation.
+
 ## 7. SelectBestEnchant Uses WorthOrder
 - Reference has a 100+ entry `WorthOrder`/`WorthOrderLevels` priority list in Constants.cs.
 - Our version uses `OrderByDescending(Level).ThenBy(Type)`.

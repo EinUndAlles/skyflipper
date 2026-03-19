@@ -117,13 +117,8 @@ public class AppDbContext : DbContext
             // Reference parity: one lookup row per auction/key.
             entity.HasIndex(e => new { e.AuctionId, e.KeyId }).IsUnique();
 
-            // NEW: Composite indexes for KeyId-based queries
+            // Composite indexes for KeyId-based queries
             entity.HasIndex(e => new { e.KeyId, e.ValueNumeric });
-            entity.HasIndex(e => new { e.KeyId, e.ValueString });
-
-            // OLD: Keep for migration compatibility (will be removed after migration)
-            entity.HasIndex(e => new { e.Key, e.ValueNumeric });
-            entity.HasIndex(e => new { e.Key, e.ValueString });
 
             // Index on auction for efficient joins
             entity.HasIndex(e => e.AuctionId);

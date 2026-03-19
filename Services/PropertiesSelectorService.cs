@@ -156,33 +156,33 @@ public class PropertiesSelectorService
             }
 
             // Held item (check both "heldItem" and "pet_held_item" keys)
-            var heldItem = auction.NBTLookups.FirstOrDefault(n => 
+            var heldItem = auction.NBTLookups.FirstOrDefault(n =>
                 n.NBTKey?.KeyName == "heldItem" || n.NBTKey?.KeyName == "pet_held_item");
-            if (heldItem?.ValueString != null)
+            if (heldItem?.NBTValue?.Value != null)
             {
                 properties.Add(new ItemProperty
                 {
                     Name = "Held Item",
-                    Value = TagToName(heldItem.ValueString),
+                    Value = TagToName(heldItem.NBTValue.Value),
                     Importance = 12,
                     Category = "Pet",
-                    ItemTag = heldItem.ValueString // Link to /item/PET_ITEM_*
+                    ItemTag = heldItem.NBTValue.Value // Link to /item/PET_ITEM_*
                 });
             }
 
             // Skin (check both "skin" and "pet_skin" keys)
-            var skin = auction.NBTLookups.FirstOrDefault(n => 
+            var skin = auction.NBTLookups.FirstOrDefault(n =>
                 n.NBTKey?.KeyName == "skin" || n.NBTKey?.KeyName == "pet_skin");
-            if (skin?.ValueString != null)
+            if (skin?.NBTValue?.Value != null)
             {
                 // Skin tags are stored without PET_SKIN_ prefix, need to construct full tag
-                var skinTag = skin.ValueString.StartsWith("PET_SKIN_") 
-                    ? skin.ValueString 
-                    : $"PET_SKIN_{skin.ValueString}";
+                var skinTag = skin.NBTValue.Value.StartsWith("PET_SKIN_")
+                    ? skin.NBTValue.Value
+                    : $"PET_SKIN_{skin.NBTValue.Value}";
                 properties.Add(new ItemProperty
                 {
                     Name = "Skin",
-                    Value = TagToName(skin.ValueString),
+                    Value = TagToName(skin.NBTValue.Value),
                     Importance = 15,
                     Category = "Pet",
                     ItemTag = skinTag // Link to /item/PET_SKIN_*
@@ -211,15 +211,15 @@ public class PropertiesSelectorService
 
             // Add ability scroll
             var abilityScroll = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "ability_scroll");
-            if (abilityScroll?.ValueString != null)
+            if (abilityScroll?.NBTValue?.Value != null)
             {
                 properties.Add(new ItemProperty
                 {
                     Name = "Ability Scroll",
-                    Value = TagToName(abilityScroll.ValueString),
+                    Value = TagToName(abilityScroll.NBTValue.Value),
                     Importance = 10,
                     Category = "Enhancement",
-                    ItemTag = abilityScroll.ValueString // Link to /item/IMPLOSION_SCROLL etc.
+                    ItemTag = abilityScroll.NBTValue.Value // Link to /item/IMPLOSION_SCROLL etc.
                 });
             }
         }
@@ -239,12 +239,12 @@ public class PropertiesSelectorService
 
         // Add Captured Player property (Cake Souls)
         var capturedPlayer = auction.NBTLookups.FirstOrDefault(n => n.NBTKey?.KeyName == "captured_player");
-        if (capturedPlayer?.ValueString != null)
+        if (capturedPlayer?.NBTValue?.Value != null)
         {
             properties.Add(new ItemProperty
             {
                 Name = "Captured Player",
-                Value = capturedPlayer.ValueString,
+                Value = capturedPlayer.NBTValue.Value,
                 Importance = 15,
                 Category = "Special"
             });
@@ -380,15 +380,15 @@ public class PropertiesSelectorService
                         n.NBTKey.KeyName.Contains("FLAWLESS") ||
                         n.NBTKey.KeyName.Contains("FINE") ||
                         n.NBTKey.KeyName.Contains("ROUGH")))
-            .Where(n => n.ValueString != null)
+            .Where(n => n.NBTValue?.Value != null)
             .ToList();
 
         foreach (var gem in gemLookups)
         {
-            if (gem.NBTKey?.KeyName is not string gemName || string.IsNullOrEmpty(gem.ValueString))
+            if (gem.NBTKey?.KeyName is not string gemName || string.IsNullOrEmpty(gem.NBTValue?.Value))
                 continue;
 
-            var gemType = gem.ValueString;
+            var gemType = gem.NBTValue.Value;
 
             // Extract quality from key name
             string quality = "Rough";

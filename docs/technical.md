@@ -13,6 +13,12 @@
 - SignalR: `http://localhost:5135/hubs/flips`
 - Frontend dev server: `http://localhost:3000`
 
+## NBT Storage
+- Legacy `NBTLookups.Key` and `NBTLookups.ValueString` removed.
+- NBT lookups now use `KeyId` and `ValueId` exclusively.
+- SQL-level filtering extracted into `Services/NbtQueryHelper.cs`.
+- Key/value ID lookup centralized in `Services/NbtLookupResolver.cs`.
+
 ## Data
 - EF Core migrations auto-apply on startup.
 - Core entities: `Auction`, `AveragePrice`, `FlipOpportunity`, `NBTLookup`.
@@ -23,5 +29,6 @@
 - Flip engine: `C:\Users\floor\Documents\coding\skyblock\SkyFlipper\Flipper\FlippingEngine.cs`
 
 ## Parity Notes
-- Overall parity ~85% per `FULL_PARITY_REVIEW.md`.
-- P0 gaps remain: SelectBestEnchant ordering, SQL-level NBT filtering, pet exp guard.
+- Overall parity ~90% based on latest review.
+- P0 correctness gaps closed (enchants, cache key format, pet exp guard, SelectBestEnchant ordering, SQL-level NBT filtering).
+- Remaining: `AveragePrice.CacheKey` length (P1), operational tooling (Prometheus/debug endpoints), and intentional monolith architecture.

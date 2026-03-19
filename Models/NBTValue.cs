@@ -7,7 +7,7 @@ namespace SkyFlipperSolo.Models;
 /// <summary>
 /// Stores unique NBT string values for deduplication.
 /// Based on Coflnet.Sky.Core.NBTValue pattern.
-/// Instead of storing "DRAGON_NEON" 10,000 times in NBTLookup.ValueString,
+/// Instead of storing "DRAGON_NEON" 10,000 times in NBTLookup,
 /// we store it once here and reference it by ID for 90% storage savings.
 /// </summary>
 public class NBTValue
