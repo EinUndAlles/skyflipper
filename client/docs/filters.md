@@ -156,6 +156,64 @@ Gem groups: COMBAT, OFFENSIVE, DEFENSIVE, MINING_, UNIVERSAL, CHISEL (×2 each).
 | PowerAbilityScroll | EQUAL | Power ability scroll | Any, None, specific scroll |
 | TunedTransmission | NUMERICAL, RANGE | Tuned transmission (AOTV) | number range |
 
+## Attribute Level Filters
+
+Per-attribute level filters for Crimson Isle/Kuudra attributes. All support NUMERICAL, RANGE with options 0-10.
+
+| Filter | NBT Key | Description |
+|--------|---------|-------------|
+| lifeline | lifeline | Lifeline attribute |
+| breeze | breeze | Breeze attribute |
+| speed | speed | Speed attribute |
+| experience | experience | Experience attribute |
+| mana_pool | mana_pool | Mana Pool attribute |
+| life_regeneration | life_regeneration | Life Regeneration attribute |
+| blazing_resistance | blazing_resistance | Blazing Resistance attribute |
+| arachno_resistance | arachno_resistance | Arachno Resistance attribute |
+| undead_resistance | undead_resistance | Undead Resistance attribute |
+| blazing_fortune | blazing_fortune | Blazing Fortune attribute |
+| fishing_experience | fishing_experience | Fishing Experience attribute |
+| double_hook | double_hook | Double Hook attribute |
+| infection | infection | Infection attribute |
+| trophy_hunter | trophy_hunter | Trophy Hunter attribute |
+| fisherman | fisherman | Fisherman attribute |
+| hunter | hunter | Hunter attribute |
+| fishing_speed | fishing_speed | Fishing Speed attribute |
+| life_recovery | life_recovery | Life Recovery attribute |
+| ignition | ignition | Ignition attribute |
+| combo | combo | Combo attribute |
+| attack_speed | attack_speed | Attack Speed attribute |
+| midas_touch | midas_touch | Midas Touch attribute |
+| mana_regeneration | mana_regeneration | Mana Regeneration attribute |
+| veteran | veteran | Veteran attribute |
+| mending | mending | Mending attribute |
+| ender_resistance | ender_resistance | Ender Resistance attribute |
+| dominance | dominance | Dominance attribute |
+| ender | ender | Ender attribute |
+| mana_steal | mana_steal | Mana Steal attribute |
+| blazing | blazing | Blazing attribute |
+| elite | elite | Elite attribute |
+| arachno | arachno | Arachno attribute |
+| undead | undead | Undead attribute |
+| warrior | warrior | Warrior attribute |
+| deadeye | deadeye | Deadeye attribute |
+| fortitude | fortitude | Fortitude attribute |
+| magic_find | magic_find | Magic Find attribute |
+| vitality | mending | Alias for mending (in-game name) |
+
+## Misc String Filters
+
+| Filter | Type | Description | Options |
+|--------|------|-------------|---------|
+| Seller | TEXT | Seller UUID or auctioneer ID | text input |
+| CakeOwner | EQUAL, TEXT | Cake owner name | text input |
+| CakeYear | NUMERICAL, RANGE | New Year's Cake year | 1-current |
+| PartyHatYear | NUMERICAL, RANGE | Party hat year | number range |
+| PartyHatColor | EQUAL | Party hat color | Any, None, specific color |
+| PartyHatEmoji | EQUAL | Party hat emoji (2023) | Any, None, specific emoji |
+| FairyColor | EQUAL | Fairy exotic color | fairy palette hex values |
+| CrystalColor | EQUAL | Crystal exotic color | crystal palette hex values |
+
 ## Usage Notes
 
 1. **Add filters** by clicking "+ Add Filters" button and typing in the search box.

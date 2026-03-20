@@ -181,6 +181,16 @@ builder.Services.AddScoped<DrillPartFuelTankFilter>();
 builder.Services.AddScoped<DrillPartUpgradeModuleFilter>();
 builder.Services.AddScoped<PowerAbilityScrollFilter>();
 builder.Services.AddScoped<TunedTransmissionFilter>();
+
+// Misc string filters
+builder.Services.AddScoped<SellerFilter>();
+builder.Services.AddScoped<CakeOwnerFilter>();
+builder.Services.AddScoped<CakeYearFilter>();
+builder.Services.AddScoped<PartyHatYearFilter>();
+builder.Services.AddScoped<PartyHatColorFilter>();
+builder.Services.AddScoped<PartyHatEmojiFilter>();
+builder.Services.AddScoped<FairyColorFilter>();
+builder.Services.AddScoped<CrystalColorFilter>();
 // Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management

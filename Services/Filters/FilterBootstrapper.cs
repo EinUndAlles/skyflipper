@@ -142,5 +142,34 @@ public static class FilterBootstrapper
         registry.Add(provider.GetRequiredService<DrillPartUpgradeModuleFilter>());
         registry.Add(provider.GetRequiredService<PowerAbilityScrollFilter>());
         registry.Add(provider.GetRequiredService<TunedTransmissionFilter>());
+
+        // Per-attribute level filters (dynamic loop)
+        var attributeKeys = new string[]
+        {
+            "lifeline", "breeze", "speed", "experience", "mana_pool",
+            "life_regeneration", "blazing_resistance", "arachno_resistance",
+            "undead_resistance", "blazing_fortune", "fishing_experience",
+            "double_hook", "infection", "trophy_hunter", "fisherman", "hunter",
+            "fishing_speed", "life_recovery", "ignition", "combo", "attack_speed",
+            "midas_touch", "mana_regeneration", "veteran", "mending", "ender_resistance",
+            "dominance", "ender", "mana_steal", "blazing", "elite", "arachno", "undead",
+            "warrior", "deadeye", "fortitude", "magic_find"
+        };
+        foreach (var attr in attributeKeys)
+        {
+            registry.Add(new AttributeLevelFilter(dbContext, attr));
+        }
+        // "vitality" alias for "mending" (mending is called vitality in-game)
+        registry.Add(new AttributeLevelFilter(dbContext, "mending", "vitality"));
+
+        // Misc string filters
+        registry.Add(provider.GetRequiredService<SellerFilter>());
+        registry.Add(provider.GetRequiredService<CakeOwnerFilter>());
+        registry.Add(provider.GetRequiredService<CakeYearFilter>());
+        registry.Add(provider.GetRequiredService<PartyHatYearFilter>());
+        registry.Add(provider.GetRequiredService<PartyHatColorFilter>());
+        registry.Add(provider.GetRequiredService<PartyHatEmojiFilter>());
+        registry.Add(provider.GetRequiredService<FairyColorFilter>());
+        registry.Add(provider.GetRequiredService<CrystalColorFilter>());
     }
 }

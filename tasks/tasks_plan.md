@@ -19,7 +19,7 @@
 10. Extract NBT SQL filtering to helper. ✅
 11. Centralize NBT key/value ID resolver. ✅
 12. Replace IMemoryCache with Redis distributed cache for references. ✅
-13. Port SkyFilter filters — Batches 1-7 complete (~134/175 filters, ~77%). ✅
+13. Port SkyFilter filters — Batches 1-8 complete (~171/175 filters, ~98%). ✅
 
 ## Filter Parity Tracker
 | Batch | Category | Filters | Status |
@@ -31,7 +31,8 @@
 | 5 | Slots/Gems/Attrs | UnlockedSlots, UnlockedSlotsMatch, HasAttribute, GemFilter(×35), GemTypeFilter(×12), PerfectGemsCount, FlawlessGemsCount | ✅ |
 | 6 | Kills/Stats | 12 kills + 12 stat counters + IntelligenceBonus | ✅ |
 | 7 | Runes/Skins/Bool/Drill | Rune(4), Skin(8), Bool/Flag(6), Drill(5) — 23 filters | ✅ |
-| 8 | Enchant aliases + loop | EnchantBaseFilter aliases, per-enchant-type loop | 🔄 Next |
+| 8 | Attr levels + Misc | Attribute(36+1 alias), Misc string(8) — 45 filters | ✅ |
+| 9 | Enchant aliases + loop | EnchantBaseFilter aliases, per-enchant-type loop | 🔄 Next |
 | 9 | Per-attribute level | Dynamic attr.* level filters | 📋 Planned |
 | 10 | Misc string | seller, cake_owner, party_hat_*, etc. | 📋 Planned |
 

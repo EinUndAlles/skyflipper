@@ -15,7 +15,7 @@ Filter parity: implementing SkyFilter filters to match coflnet's filter surface 
 - Test fixtures for pets, drills, attributes; all 32 tests passing.
 
 ## Filter Parity Status
-- **Implemented: ~134 of ~175 coflnet filters (~77%)**
+- **Implemented: ~171 of ~175 coflnet filters (~98%)**
 - Batch 1: Core — Bin, Stars, Rarity, Reforge, StartingBid, HighestBid, Count, Enchantment, EnchantLvl
 - Batch 2: Equipment — HotPotatoCount, ArtOfTheWar, FarmingForDummies, Recombobulated, Ethermerge, AbilityScroll, Skin, WinningBid, Edition, CapturedPlayer, EndBefore/After, ItemCreatedBefore/After
 - Batch 3: Pet — PetLevel, PetItem, PetSkin, PetExp
@@ -26,12 +26,12 @@ Filter parity: implementing SkyFilter filters to match coflnet's filter surface 
 - Batch 7: Skins — DragonArmor, ReaperMask, SnowSuite, TarantulaHelmet, FrozenBlaze, PerfectHelmet, DiversMask, ShadowAssassin
 - Batch 7: Bool/Flag — IsShiny, ArtOfPeace, WoodSingularity, Model, Sold, Clean
 - Batch 7: Drill/Equipment — DrillPartEngine, DrillPartFuelTank, DrillPartUpgradeModule, PowerAbilityScroll, TunedTransmission
+- Batch 8: Per-attribute level — 36 attribute filters (attr.lifeline through attr.magic_find) + vitality alias
+- Batch 8: Misc string — Seller, CakeOwner, CakeYear, PartyHatYear, PartyHatColor, PartyHatEmoji, FairyColor, CrystalColor
 
 ## Current Risks
 - `/flips` hydration warnings may still exist; consider no-SSR wrapper if recurring.
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
-- Batch 8: Enchant aliases + per-enchant loop (~20 filters).
-- Batch 9: Per-attribute level loop (~36 filters).
-- Batch 10: Misc string filters (seller, cake_owner, party_hat_*, etc.).
+- Batch 9: Enchant aliases + per-enchant loop (~20 filters) — final coflnet filter parity.
