@@ -111,5 +111,36 @@ public static class FilterBootstrapper
                 registry.Add(new GemTypeFilter(dbContext, $"{group}_{i}"));
             }
         }
+
+        // Rune filters
+        registry.Add(provider.GetRequiredService<MusicRuneFilter>());
+        registry.Add(provider.GetRequiredService<EnchantRuneFilter>());
+        registry.Add(provider.GetRequiredService<TidalRuneFilter>());
+        registry.Add(provider.GetRequiredService<EndRuneFilter>());
+
+        // Item-specific skin filters
+        registry.Add(provider.GetRequiredService<DragonArmorSkinFilter>());
+        registry.Add(provider.GetRequiredService<ReaperMaskSkinFilter>());
+        registry.Add(provider.GetRequiredService<SnowSuiteSkinFilter>());
+        registry.Add(provider.GetRequiredService<TarantulaHelmetSkinFilter>());
+        registry.Add(provider.GetRequiredService<FrozenBlazeSkinFilter>());
+        registry.Add(provider.GetRequiredService<PerfectHelmetSkinFilter>());
+        registry.Add(provider.GetRequiredService<DiversMaskSkinFilter>());
+        registry.Add(provider.GetRequiredService<ShadowAssassinSkinFilter>());
+
+        // Bool/flag filters
+        registry.Add(provider.GetRequiredService<IsShinyFilter>());
+        registry.Add(provider.GetRequiredService<ArtOfPeaceFilter>());
+        registry.Add(provider.GetRequiredService<WoodSingularityFilter>());
+        registry.Add(provider.GetRequiredService<ModelFilter>());
+        registry.Add(provider.GetRequiredService<SoldFilter>());
+        registry.Add(provider.GetRequiredService<CleanFilter>());
+
+        // Drill/equipment filters
+        registry.Add(provider.GetRequiredService<DrillPartEngineFilter>());
+        registry.Add(provider.GetRequiredService<DrillPartFuelTankFilter>());
+        registry.Add(provider.GetRequiredService<DrillPartUpgradeModuleFilter>());
+        registry.Add(provider.GetRequiredService<PowerAbilityScrollFilter>());
+        registry.Add(provider.GetRequiredService<TunedTransmissionFilter>());
     }
 }

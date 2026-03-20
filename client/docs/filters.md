@@ -117,6 +117,44 @@ Gem groups: COMBAT, OFFENSIVE, DEFENSIVE, MINING_, UNIVERSAL, CHISEL (×2 each).
 | Skin | EQUAL | Generic item skin | Any, None, specific skin values |
 | CapturedPlayer | EQUAL | Captured player (Trophy fish) | player name |
 | Edition | NUMERICAL, RANGE | Edition number | number range |
+| DragonArmorSkin | EQUAL | Dragon helmet skins | Any, None, specific skin |
+| ReaperMaskSkin | EQUAL | Reaper Mask skins | Any, None, specific skin |
+| SnowSuiteSkin | EQUAL | Snow Suit helmet skins | Any, None, specific skin |
+| TarantulaHelmetSkin | EQUAL | Tarantula Helmet skins | Any, TARANTULA_BLACK_WIDOW, None |
+| FrozenBlazeSkin | EQUAL | Frozen Blaze helmet skins | Any, None, specific skin |
+| PerfectHelmetSkin | EQUAL | Perfect helmet skins | Any, None, specific skin |
+| DiversMaskSkin | EQUAL | Diver's Mask skins | Any, None, specific skin |
+| ShadowAssassinSkin | EQUAL | Shadow Assassin helmet skins | Any, None, specific skin |
+
+## Rune Filters
+
+| Filter | Type | Description | Options |
+|--------|------|-------------|---------|
+| RUNE_MUSIC | NUMERICAL, RANGE | Music rune level | 0-3 |
+| RUNE_ENCHANT | NUMERICAL, RANGE | Enchant rune level | 0-3 |
+| RUNE_TIDAL | NUMERICAL, RANGE | Tidal rune level | 0-3 |
+| RUNE_DRAGON | NUMERICAL, RANGE | Dragon/End rune level | 0-3 |
+
+## Bool / Flag Filters
+
+| Filter | Type | Description | Options |
+|--------|------|-------------|---------|
+| IsShiny | BOOLEAN | Is shiny item | yes, no |
+| ArtOfPeace | BOOLEAN | Art of Peace applied | yes, no |
+| WoodSingularity | BOOLEAN | Wood Singularity applied | yes, no |
+| Model | EQUAL | Abicase model | Any, None, specific model |
+| Sold | BOOLEAN | Has item sold (ended with bid) | true, false |
+| Clean | BOOLEAN | Item has no modifications | yes |
+
+## Drill / Equipment Filters
+
+| Filter | Type | Description | Options |
+|--------|------|-------------|---------|
+| DrillPartEngine | EQUAL | Drill engine part | Any, None, specific part |
+| DrillPartFuelTank | EQUAL | Drill fuel tank part | Any, None, specific part |
+| DrillPartUpgradeModule | EQUAL | Drill upgrade module | Any, None, specific part |
+| PowerAbilityScroll | EQUAL | Power ability scroll | Any, None, specific scroll |
+| TunedTransmission | NUMERICAL, RANGE | Tuned transmission (AOTV) | number range |
 
 ## Usage Notes
 

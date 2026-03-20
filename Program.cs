@@ -150,6 +150,37 @@ builder.Services.AddScoped<RaffleYearCountFilter>();
 
 // Special filters
 builder.Services.AddScoped<IntelligenceBonusFilter>();
+
+// Rune filters
+builder.Services.AddScoped<MusicRuneFilter>();
+builder.Services.AddScoped<EnchantRuneFilter>();
+builder.Services.AddScoped<TidalRuneFilter>();
+builder.Services.AddScoped<EndRuneFilter>();
+
+// Item-specific skin filters
+builder.Services.AddScoped<DragonArmorSkinFilter>();
+builder.Services.AddScoped<ReaperMaskSkinFilter>();
+builder.Services.AddScoped<SnowSuiteSkinFilter>();
+builder.Services.AddScoped<TarantulaHelmetSkinFilter>();
+builder.Services.AddScoped<FrozenBlazeSkinFilter>();
+builder.Services.AddScoped<PerfectHelmetSkinFilter>();
+builder.Services.AddScoped<DiversMaskSkinFilter>();
+builder.Services.AddScoped<ShadowAssassinSkinFilter>();
+
+// Bool/flag filters
+builder.Services.AddScoped<IsShinyFilter>();
+builder.Services.AddScoped<ArtOfPeaceFilter>();
+builder.Services.AddScoped<WoodSingularityFilter>();
+builder.Services.AddScoped<ModelFilter>();
+builder.Services.AddScoped<SoldFilter>();
+builder.Services.AddScoped<CleanFilter>();
+
+// Drill/equipment filters
+builder.Services.AddScoped<DrillPartEngineFilter>();
+builder.Services.AddScoped<DrillPartFuelTankFilter>();
+builder.Services.AddScoped<DrillPartUpgradeModuleFilter>();
+builder.Services.AddScoped<PowerAbilityScrollFilter>();
+builder.Services.AddScoped<TunedTransmissionFilter>();
 // Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management

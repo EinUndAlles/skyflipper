@@ -15,18 +15,23 @@ Filter parity: implementing SkyFilter filters to match coflnet's filter surface 
 - Test fixtures for pets, drills, attributes; all 32 tests passing.
 
 ## Filter Parity Status
-- **Implemented: ~109 of ~175 coflnet filters (~62%)**
+- **Implemented: ~134 of ~175 coflnet filters (~77%)**
 - Batch 1: Core — Bin, Stars, Rarity, Reforge, StartingBid, HighestBid, Count, Enchantment, EnchantLvl
 - Batch 2: Equipment — HotPotatoCount, ArtOfTheWar, FarmingForDummies, Recombobulated, Ethermerge, AbilityScroll, Skin, WinningBid, Edition, CapturedPlayer, EndBefore/After, ItemCreatedBefore/After
 - Batch 3: Pet — PetLevel, PetItem, PetSkin, PetExp
 - Batch 4: Color — Color, HexColorList, ExoticColor, DyeItem
 - Batch 5: Slots/Gems/Attributes — UnlockedSlots, UnlockedSlotsMatch, HasAttribute, GemFilter (×35), GemTypeFilter (×12), PerfectGemsCount, FlawlessGemsCount
 - Batch 6: Kills/Stats — ZombieKills, SpiderKills, EmanKills, ExpertiseKills, RaiderKills, SwordKills, BloodGodKills, BlazeKills, YogsKilled, BlazeConsumer, RunicKills, HandlesFound, BaseStatBoost, ManaDisintegrator, FarmedCultivating, MinedCrops, BlocksBroken, ThunderCharge, CollectedCoins, ChimeraFound, PickonimbusDurability, IntelligenceEarned, RaffleWin, RaffleYear, IntelligenceBonus
+- Batch 7: Runes — MusicRune, EnchantRune, TidalRune, EndRune
+- Batch 7: Skins — DragonArmor, ReaperMask, SnowSuite, TarantulaHelmet, FrozenBlaze, PerfectHelmet, DiversMask, ShadowAssassin
+- Batch 7: Bool/Flag — IsShiny, ArtOfPeace, WoodSingularity, Model, Sold, Clean
+- Batch 7: Drill/Equipment — DrillPartEngine, DrillPartFuelTank, DrillPartUpgradeModule, PowerAbilityScroll, TunedTransmission
 
 ## Current Risks
 - `/flips` hydration warnings may still exist; consider no-SSR wrapper if recurring.
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
-- Batch 7: Rune filters (5), Item-specific skins (8), Bool/flag filters (7), Drill/equipment (5).
-- Batch 8+: Enchant aliases + per-enchant loop, per-attribute level loop, misc string filters.
+- Batch 8: Enchant aliases + per-enchant loop (~20 filters).
+- Batch 9: Per-attribute level loop (~36 filters).
+- Batch 10: Misc string filters (seller, cake_owner, party_hat_*, etc.).
