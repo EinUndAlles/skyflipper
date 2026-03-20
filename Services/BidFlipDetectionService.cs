@@ -62,6 +62,7 @@ public class BidFlipDetectionService : BackgroundService
 
     private async Task DetectBidFlips(CancellationToken stoppingToken)
     {
+        using var metricTimer = FlipMetrics.MeasureFlipDetection();
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = DateTime.UtcNow;
@@ -150,6 +151,9 @@ public class BidFlipDetectionService : BackgroundService
 
         if (hitUpdates.Count > 0)
             await BatchUpdateHitCounts(dbContext, hitUpdates, stoppingToken);
+
+        if (bidFlips.Count > 0)
+            FlipMetrics.BidFlipsDetected.Inc(bidFlips.Count);
 
         if (bidFlips.Count > 0)
             _logger.LogInformation("Found {Count} bid flips", bidFlips.Count);

@@ -56,6 +56,7 @@ public class FlipDetectionService : BackgroundService
 
     private async Task DetectFlips(CancellationToken stoppingToken)
     {
+        using var metricTimer = FlipMetrics.MeasureFlipDetection();
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var now = DateTime.UtcNow;
@@ -123,6 +124,7 @@ public class FlipDetectionService : BackgroundService
 
         if (flips.Count > 0)
         {
+            FlipMetrics.BinFlipsDetected.Inc(flips.Count);
             dbContext.FlipOpportunities.AddRange(flips);
             await dbContext.SaveChangesAsync(stoppingToken);
 

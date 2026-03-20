@@ -12,6 +12,7 @@
 - API base: `http://localhost:5135`
 - SignalR: `http://localhost:5135/hubs/flips`
 - Frontend dev server: `http://localhost:3000`
+- Metrics: `http://localhost:5135/metrics`
 
 ## NBT Storage
 - Legacy `NBTLookups.Key` and `NBTLookups.ValueString` removed.
@@ -31,4 +32,4 @@
 ## Parity Notes
 - Overall parity ~90% based on latest review.
 - P0 correctness gaps closed (enchants, cache key format, pet exp guard, SelectBestEnchant ordering, SQL-level NBT filtering).
-- Remaining: `AveragePrice.CacheKey` length (P1), operational tooling (Prometheus/debug endpoints), and intentional monolith architecture.
+- Remaining: operational tooling (Prometheus/debug endpoints) and intentional monolith architecture.

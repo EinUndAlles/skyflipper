@@ -1,0 +1,98 @@
+{
+  "auction": {
+    "uuid": "fixture-main-auction",
+    "tag": "HYPERION",
+    "itemName": "Hyperion",
+    "tier": "LEGENDARY",
+    "count": 1,
+    "bin": true,
+    "status": "ACTIVE",
+    "startingBid": 85000000,
+    "highestBidAmount": 0,
+    "end": "2030-01-01T00:00:00Z",
+    "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [
+      { "type": "ultimate_wisdom", "level": 5 },
+      { "type": "sharpness", "level": 7 },
+      { "type": "first_strike", "level": 5 }
+    ],
+    "nbt": {
+      "rarity_upgrades": "1",
+      "dungeon_item_level": "10"
+    }
+  },
+  "references": [
+    {
+      "uuid": "fixture-ref-sold-1",
+      "tag": "HYPERION",
+      "itemName": "Hyperion",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 100000000,
+      "highestBidAmount": 0,
+      "soldPrice": 102000000,
+      "soldAt": "2025-01-15T00:00:00Z",
+      "end": "2025-01-15T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [
+      { "type": "ultimate_wisdom", "level": 5 },
+      { "type": "sharpness", "level": 7 },
+      { "type": "first_strike", "level": 5 }
+    ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "dungeon_item_level": "10"
+      }
+    },
+    {
+      "uuid": "fixture-ref-sold-2",
+      "tag": "HYPERION",
+      "itemName": "Hyperion",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 100000000,
+      "highestBidAmount": 0,
+      "soldPrice": 98000000,
+      "soldAt": "2025-01-18T00:00:00Z",
+      "end": "2025-01-18T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [
+      { "type": "ultimate_wisdom", "level": 5 },
+      { "type": "sharpness", "level": 7 },
+      { "type": "first_strike", "level": 5 }
+    ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "dungeon_item_level": "10"
+      }
+    },
+    {
+      "uuid": "fixture-ref-sold-3",
+      "tag": "HYPERION",
+      "itemName": "Hyperion",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 100000000,
+      "highestBidAmount": 0,
+      "soldPrice": 100000000,
+      "soldAt": "2025-01-20T00:00:00Z",
+      "end": "2025-01-20T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [
+      { "type": "ultimate_wisdom", "level": 5 },
+      { "type": "sharpness", "level": 7 },
+      { "type": "first_strike", "level": 5 }
+    ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "dungeon_item_level": "10"
+      }
+    }
+  ]
+}

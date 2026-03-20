@@ -2,11 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
+using System.Text.Json;
 
 namespace SkyFlipperSolo.Tests;
 
@@ -195,6 +197,271 @@ public class ReferenceParityTests
             $"initial={trace.InitialCount}, day={trace.ExpandedDayCount}, week={trace.ExpandedWeekCount}, reduced={trace.ReducedCount}, recentReduced={trace.RecentReducedCount}, antiSource={trace.AntiManipulationSourceCount}, beforeAnti={trace.BeforeAntiManipulationCount}, afterAnti={trace.AfterAntiManipulationCount}");
         Assert.That(result.References.Select(a => a.Uuid).ToList(), Does.Not.Contain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         Assert.That(result.References.Select(a => a.Uuid).ToList(), Does.Not.Contain("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+    }
+
+    [Test]
+    public async Task ReferenceFixtureReturnsReferences()
+    {
+        var fixture = LoadReferenceFixture();
+        if (fixture.References.Count < 10)
+        {
+            var seed = fixture.References.First();
+            var needed = 10 - fixture.References.Count;
+            for (var i = 0; i < needed; i++)
+            {
+                fixture.References.Add(new FixtureAuction
+                {
+                    Uuid = $"fixture-ref-extra-{i}",
+                    Tag = seed.Tag,
+                    ItemName = seed.ItemName,
+                    Tier = seed.Tier,
+                    Count = seed.Count,
+                    Bin = seed.Bin,
+                    Status = seed.Status,
+                    StartingBid = seed.StartingBid,
+                    HighestBidAmount = seed.HighestBidAmount,
+                    SoldPrice = seed.SoldPrice,
+                    End = seed.End,
+                    SoldAt = seed.SoldAt,
+                    ItemCreatedAt = seed.ItemCreatedAt,
+                    Enchantments = seed.Enchantments.Select(e => new FixtureEnchant { Type = e.Type, Level = e.Level }).ToList(),
+                    Nbt = new Dictionary<string, string>(seed.Nbt, StringComparer.OrdinalIgnoreCase)
+                });
+            }
+        }
+
+        var services = new ServiceCollection();
+        services.AddDbContext<AppDbContext>(options =>
+            options.UseInMemoryDatabase(Guid.NewGuid().ToString("N")));
+        services.AddMemoryCache();
+        services.AddSingleton<NbtLookupResolver>();
+        services.AddSingleton<CacheKeyService>();
+        services.AddSingleton<ComponentValueService>(sp =>
+            new ComponentValueService(
+                new StaticHttpClientFactory(),
+                sp.GetRequiredService<IMemoryCache>(),
+                NullLogger<ComponentValueService>.Instance));
+        services.AddLogging();
+
+        var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var now = DateTime.UtcNow;
+        var mainAuction = BuildAuction(fixture.Auction);
+        mainAuction.Status = AuctionStatus.ACTIVE;
+        mainAuction.End = now.AddMinutes(45);
+        dbContext.Auctions.Add(mainAuction);
+
+        var offset = 0;
+        foreach (var reference in fixture.References)
+        {
+            var auction = BuildAuction(reference);
+            var soldAt = now.AddMinutes(-30 * (offset + 1));
+            auction.Status = AuctionStatus.SOLD;
+            auction.SoldAt = soldAt;
+            auction.End = soldAt;
+            auction.AuctioneerId = $"fixture-seller-{offset}";
+            auction.Bids.Add(new BidRecord
+            {
+                BidderId = $"fixture-buyer-{offset}",
+                Amount = auction.SoldPrice ?? auction.HighestBidAmount,
+                Timestamp = soldAt.AddMinutes(-1)
+            });
+            offset++;
+            dbContext.Auctions.Add(auction);
+        }
+
+        var allLookups = dbContext.Auctions
+            .SelectMany(a => a.NBTLookups)
+            .ToList();
+
+        var keyMap = allLookups
+            .Select(l => l.NBTKey?.KeyName)
+            .Where(k => !string.IsNullOrEmpty(k))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(k => k!, k => new NBTKey { KeyName = k! }, StringComparer.OrdinalIgnoreCase);
+
+        if (keyMap.Count > 0)
+        {
+            dbContext.NBTKeys.AddRange(keyMap.Values);
+            await dbContext.SaveChangesAsync();
+
+            var valueMap = allLookups
+                .Select(l => new { Key = l.NBTKey?.KeyName, Value = l.NBTValue?.Value })
+                .Where(kv => !string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value))
+                .Distinct()
+                .Select(kv => new NBTValue
+                {
+                    KeyId = keyMap[kv.Key!].Id,
+                    Value = kv.Value!
+                })
+                .ToList();
+
+            if (valueMap.Count > 0)
+            {
+                dbContext.NBTValues.AddRange(valueMap);
+                await dbContext.SaveChangesAsync();
+            }
+
+            foreach (var lookup in allLookups)
+            {
+                var keyName = lookup.NBTKey?.KeyName;
+                if (string.IsNullOrEmpty(keyName))
+                    continue;
+
+                lookup.KeyId = keyMap[keyName].Id;
+
+                var value = lookup.NBTValue?.Value;
+                if (string.IsNullOrEmpty(value))
+                    continue;
+
+                var valueEntity = dbContext.NBTValues
+                    .First(v => v.KeyId == lookup.KeyId && v.Value == value);
+                lookup.ValueId = valueEntity.Id;
+            }
+        }
+
+        await dbContext.SaveChangesAsync();
+
+        var referenceService = new ReferenceAuctionService(
+            new StaticScopeFactory(dbContext),
+            scope.ServiceProvider.GetRequiredService<IMemoryCache>(),
+            scope.ServiceProvider.GetRequiredService<CacheKeyService>(),
+            scope.ServiceProvider.GetRequiredService<ComponentValueService>(),
+            scope.ServiceProvider.GetRequiredService<NbtLookupResolver>(),
+            NullLogger<ReferenceAuctionService>.Instance);
+        var dbContext2 = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var preQuery = await dbContext2.Auctions
+            .Where(a => a.Tag == mainAuction.Tag && a.Uuid != mainAuction.Uuid)
+            .Select(a => new { a.Uuid, a.ItemName, a.Tier, a.Reforge, a.Status, a.SoldAt, a.End })
+            .ToListAsync();
+
+        var preQueryFull = await dbContext2.Auctions
+            .Where(a => a.Tag == mainAuction.Tag && a.Uuid != mainAuction.Uuid)
+            .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTKey)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTValue)
+            .ToListAsync();
+
+        var candidate = preQueryFull.FirstOrDefault();
+        var matchDebug = candidate == null
+            ? null
+            : referenceService.EvaluateCandidateMatch(
+                candidate,
+                mainAuction,
+                mainAuction.ItemName,
+                BuildFlatNbt(mainAuction),
+                null,
+                CacheKeyService.ExtractRelevantEnchants(mainAuction.Enchantments),
+                false);
+
+        var debug = await referenceService.DebugRelevantAuctionsAsync(mainAuction, CancellationToken.None);
+        var cacheKey = scope.ServiceProvider.GetRequiredService<CacheKeyService>().GeneratePriceCacheKey(mainAuction);
+        var cacheEnabled = scope.ServiceProvider.GetRequiredService<IMemoryCache>().TryGetValue(cacheKey, out RelevantReferenceResult? cached);
+        var debugRefs = ReferenceAuctionService.ApplyAntiMarketManipulation(preQueryFull);
+
+        var debugDetails = matchDebug == null
+            ? "No candidate for match debug."
+            : $"Match: {matchDebug.IsMatch} tier={matchDebug.TierMatches} reforge={matchDebug.ReforgeMatches} stack={matchDebug.StackMatches} name={matchDebug.NameMatches} nbt={matchDebug.FlatNbtMatches} enchants={matchDebug.EnchantmentsMatch}";
+
+        Assert.That(debug.References.Count, Is.GreaterThanOrEqualTo(2),
+            $"References=0. PreQuery={preQuery.Count}. DebugRefs={debugRefs.Count}. CacheHit={cacheEnabled}. CachedCount={(cached?.References.Count ?? -1)}. StageCounts: initial={debug.InitialCount}, day={debug.ExpandedDayCount}, week={debug.ExpandedWeekCount}, reduced={debug.ReducedCount}, recentReduced={debug.RecentReducedCount}, antiSource={debug.AntiManipulationSourceCount}, beforeAnti={debug.BeforeAntiManipulationCount}, afterAnti={debug.AfterAntiManipulationCount}. {debugDetails}");
+    }
+
+    private static ReferenceFixture LoadReferenceFixture()
+    {
+        var testDir = TestContext.CurrentContext.TestDirectory;
+        var path = Path.Combine(testDir, "Fixtures", "reference_auctions.json");
+        if (!File.Exists(path))
+        {
+            path = Path.Combine(testDir, "..", "..", "..", "Fixtures", "reference_auctions.json");
+            path = Path.GetFullPath(path);
+        }
+        var json = File.ReadAllText(path);
+        var fixture = JsonSerializer.Deserialize<ReferenceFixture>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        Assert.That(fixture, Is.Not.Null);
+        return fixture!;
+    }
+
+    private static Auction BuildAuction(FixtureAuction fixture)
+    {
+        var auction = new Auction
+        {
+            Uuid = fixture.Uuid,
+            Tag = fixture.Tag,
+            ItemName = fixture.ItemName,
+            Tier = Enum.Parse<Tier>(fixture.Tier, true),
+            Category = Category.WEAPON,
+            Count = fixture.Count,
+            Bin = fixture.Bin,
+            Status = Enum.Parse<AuctionStatus>(fixture.Status, true),
+            StartingBid = fixture.StartingBid,
+            HighestBidAmount = fixture.HighestBidAmount,
+            SoldPrice = fixture.SoldPrice,
+            End = fixture.End,
+            SoldAt = fixture.SoldAt,
+            ItemCreatedAt = fixture.ItemCreatedAt,
+            Enchantments = fixture.Enchantments.Select(e =>
+                new Enchantment(Enum.Parse<EnchantmentType>(e.Type, true), (byte)e.Level)).ToList()
+        };
+
+        if (fixture.Nbt.Count > 0)
+        {
+            var nbtKeyMap = fixture.Nbt.Keys
+                .ToDictionary(k => k, k => new NBTKey { KeyName = k }, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var keyEntity in nbtKeyMap.Values)
+                auction.NBTLookups.Add(new NBTLookup { NBTKey = keyEntity });
+
+            foreach (var (key, value) in fixture.Nbt)
+            {
+                auction.NBTLookups.Add(new NBTLookup
+                {
+                    NBTKey = nbtKeyMap[key],
+                    NBTValue = new NBTValue { NBTKey = nbtKeyMap[key], Value = value }
+                });
+            }
+        }
+
+        return auction;
+    }
+
+    private sealed class ReferenceFixture
+    {
+        public FixtureAuction Auction { get; set; } = new();
+        public List<FixtureAuction> References { get; set; } = new();
+    }
+
+    private sealed class FixtureAuction
+    {
+        public string Uuid { get; set; } = string.Empty;
+        public string Tag { get; set; } = string.Empty;
+        public string ItemName { get; set; } = string.Empty;
+        public string Tier { get; set; } = string.Empty;
+        public int Count { get; set; }
+        public bool Bin { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public long StartingBid { get; set; }
+        public long HighestBidAmount { get; set; }
+        public long? SoldPrice { get; set; }
+        public DateTime End { get; set; }
+        public DateTime? SoldAt { get; set; }
+        public DateTime ItemCreatedAt { get; set; }
+        public List<FixtureEnchant> Enchantments { get; set; } = new();
+        public Dictionary<string, string> Nbt { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class FixtureEnchant
+    {
+        public string Type { get; set; } = string.Empty;
+        public int Level { get; set; }
     }
 
     [Test]
@@ -875,6 +1142,7 @@ public class ReferenceParityTests
             memoryCache,
             CreateCacheKeyService(),
             componentValueService,
+            new NbtLookupResolver(scopeFactory ?? new EmptyScopeFactory()),
             NullLogger<ReferenceAuctionService>.Instance);
     }
 
@@ -952,6 +1220,68 @@ public class ReferenceParityTests
         }
 
         return clone;
+    }
+
+    private static Dictionary<string, string> BuildFlatNbt(Auction auction)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lookup in auction.NBTLookups)
+        {
+            var key = lookup.NBTKey?.KeyName;
+            if (string.IsNullOrEmpty(key))
+                continue;
+
+            var value = lookup.NBTValue?.Value ?? lookup.ValueNumeric?.ToString();
+            if (!string.IsNullOrEmpty(value))
+                dict[key] = value;
+        }
+
+        return dict;
+    }
+
+    private sealed class StaticScopeFactory : IServiceScopeFactory
+    {
+        private readonly AppDbContext _dbContext;
+
+        public StaticScopeFactory(AppDbContext dbContext)
+        {
+            _dbContext = dbContext;
+        }
+
+        public IServiceScope CreateScope() => new StaticScope(_dbContext);
+
+        private sealed class StaticScope : IServiceScope
+        {
+            private readonly IServiceProvider _provider;
+
+            public StaticScope(AppDbContext dbContext)
+            {
+                _provider = new StaticProvider(dbContext);
+            }
+
+            public IServiceProvider ServiceProvider => _provider;
+
+            public void Dispose()
+            {
+            }
+
+            private sealed class StaticProvider : IServiceProvider
+            {
+                private readonly AppDbContext _dbContext;
+
+                public StaticProvider(AppDbContext dbContext)
+                {
+                    _dbContext = dbContext;
+                }
+
+                public object? GetService(Type serviceType)
+                {
+                    if (serviceType == typeof(AppDbContext))
+                        return _dbContext;
+                    return null;
+                }
+            }
+        }
     }
 
     private sealed class StaticHttpClientFactory : IHttpClientFactory

@@ -21,7 +21,7 @@ public class AveragePrice
     /// <summary>
     /// NBT-aware cache key for precise price comparison (includes stars, enchants, etc.)
     /// </summary>
-    [MaxLength(200)]
+    [MaxLength(600)]
     public string CacheKey { get; set; } = string.Empty;
 
     /// <summary>

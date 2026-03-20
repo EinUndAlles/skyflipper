@@ -11,10 +11,10 @@
 2. Fix `ShouldPetItemMatch` exp guard (P0). (done)
 3. Port `SelectBestEnchant` WorthOrder/WorthOrderLevels (P0). (done)
 4. Move NBT filtering to SQL-level in `ReferenceAuctionService` (P1). (done)
-5. Fix `AveragePrice.CacheKey` length (P1).
-6. Add debug endpoints in `FlipsController` (P3).
-7. Add Prometheus metrics for flip detection loop (P3).
-8. Capture and add real-data regression fixtures to tests (P3).
+5. Fix `AveragePrice.CacheKey` length (P1). (done)
+6. Add debug endpoints in `FlipsController` (P3). (done)
+7. Add Prometheus metrics for flip detection loop (P3). (done)
+8. Capture and add real-data regression fixtures to tests (P3). (done)
 9. Replace NBTLookup legacy Key/ValueString with KeyId/ValueId (done).
 10. Extract NBT SQL filtering to helper (done).
 11. Centralize NBT key/value ID resolver (done).

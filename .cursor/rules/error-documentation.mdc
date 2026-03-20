@@ -52,9 +52,9 @@ alwaysApply: false
 **Fix:** Consider adding Redis-backed IDistributedCache.
 
 ### 13. AveragePrice.CacheKey Length (P1)
-**Status:** Open — still `varchar(200)`.
+**Status:** Resolved — widened to `varchar(600)`.
 **Context:** Raw cache keys can exceed 200 chars, risk of truncation.
-**Fix:** Widen column length (and any indexes) to match expected max key length.
+**Fix:** Migration `WidenAveragePriceCacheKey` updates column length.
 
 ### 10. Legacy NBTLookup Fields Removed
 **Status:** Completed — `Key` and `ValueString` removed from `NBTLookups`.
@@ -70,6 +70,11 @@ alwaysApply: false
 **Status:** Completed — `NbtLookupResolver` now handles KeyId/ValueId lookups with caching.
 **Context:** Duplicate DB queries existed across NBT filters.
 **Fix:** Resolver is injected and reused.
+
+### 14. Metrics Endpoint Missing (P3)
+**Status:** Resolved — Prometheus metrics exposed at `/metrics`.
+**Context:** No observability for flip detection/reference selection.
+**Fix:** Added prometheus-net and basic counters/histograms.
 
 ### 9. SelectBestEnchant Ordering (P0)
 **Status:** Resolved — WorthOrder/WorthOrderLevels ported from reference.

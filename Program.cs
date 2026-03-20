@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
+using Prometheus;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Hubs;
 using SkyFlipperSolo.Models;
@@ -98,7 +99,12 @@ app.UseCors("AllowFrontend");
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.UseRouting();
+app.UseHttpMetrics();
+
 app.MapControllers();
+
+app.MapMetrics();
 
 // Map SignalR hub for real-time flip notifications
 app.MapHub<FlipHub>("/hubs/flips");

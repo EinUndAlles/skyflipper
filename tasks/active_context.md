@@ -13,12 +13,8 @@ Close remaining P1/P3 parity gaps (AveragePrice CacheKey length, debug endpoints
 - NBT key/value ID resolver centralized in `NbtLookupResolver`.
 
 ## Current Risks
-- `AveragePrice.CacheKey` length is still `varchar(200)` (risk of truncation).
 - `/flips` hydration warnings may still exist; consider no-SSR wrapper if recurring.
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
-- Expand `AveragePrice.CacheKey` length.
-- Add debug endpoints for flip reference inspection.
-- Add Prometheus metrics for runtime monitoring.
 - Expand parity tests with live-data fixtures.

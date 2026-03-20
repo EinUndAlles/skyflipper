@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
+using SkyFlipperSolo.Services;
 
 namespace SkyFlipperSolo.Controllers;
 
@@ -10,11 +11,19 @@ namespace SkyFlipperSolo.Controllers;
 public class FlipsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly ReferenceAuctionService _referenceAuctionService;
+    private readonly CacheKeyService _cacheKeyService;
     private readonly ILogger<FlipsController> _logger;
 
-    public FlipsController(AppDbContext context, ILogger<FlipsController> logger)
+    public FlipsController(
+        AppDbContext context,
+        ReferenceAuctionService referenceAuctionService,
+        CacheKeyService cacheKeyService,
+        ILogger<FlipsController> logger)
     {
         _context = context;
+        _referenceAuctionService = referenceAuctionService;
+        _cacheKeyService = cacheKeyService;
         _logger = logger;
     }
 
@@ -135,6 +144,84 @@ public class FlipsController : ControllerBase
 
         return Ok(stats);
     }
+
+    /// <summary>
+    /// Debug reference selection for a given auction UUID.
+    /// </summary>
+    [HttpGet("debug/reference/{uuid}")]
+    public async Task<ActionResult<ReferenceDebugResponse>> GetReferenceDebug(string uuid, CancellationToken stoppingToken)
+    {
+        var auction = await _context.Auctions
+            .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTValue)
+            .Include(a => a.Bids)
+            .FirstOrDefaultAsync(a => a.Uuid == uuid.Replace("-", ""), stoppingToken);
+
+        if (auction == null)
+            return NotFound();
+
+        var debug = await _referenceAuctionService.DebugRelevantAuctionsAsync(auction, stoppingToken);
+
+        var response = new ReferenceDebugResponse
+        {
+            AuctionUuid = auction.Uuid,
+            CacheKey = _cacheKeyService.GeneratePriceCacheKey(auction),
+            InitialCount = debug.InitialCount,
+            ExpandedDayCount = debug.ExpandedDayCount,
+            ExpandedWeekCount = debug.ExpandedWeekCount,
+            ReducedCount = debug.ReducedCount,
+            RecentReducedCount = debug.RecentReducedCount,
+            AntiManipulationSourceCount = debug.AntiManipulationSourceCount,
+            BeforeAntiManipulationCount = debug.BeforeAntiManipulationCount,
+            AfterAntiManipulationCount = debug.AfterAntiManipulationCount,
+            References = debug.References.Select(a => new ReferenceAuctionSummary
+            {
+                AuctionUuid = a.Uuid,
+                ItemTag = a.Tag,
+                ItemName = a.ItemName,
+                Tier = a.Tier,
+                Reforge = a.Reforge,
+                Count = a.Count,
+                Status = a.Status,
+                SoldAt = a.SoldAt,
+                End = a.End,
+                Price = a.SoldPrice ?? a.HighestBidAmount,
+                CacheKey = _cacheKeyService.GeneratePriceCacheKey(a)
+            }).ToList()
+        };
+
+        return Ok(response);
+    }
+
+    /// <summary>
+    /// Debug cache key for a given auction UUID.
+    /// </summary>
+    [HttpGet("debug/cache-key/{uuid}")]
+    public async Task<ActionResult<CacheKeyDebugResponse>> GetCacheKeyDebug(string uuid, CancellationToken stoppingToken)
+    {
+        var auction = await _context.Auctions
+            .Include(a => a.Enchantments)
+            .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTValue)
+            .FirstOrDefaultAsync(a => a.Uuid == uuid.Replace("-", ""), stoppingToken);
+
+        if (auction == null)
+            return NotFound();
+
+        var cacheKey = _cacheKeyService.GeneratePriceCacheKey(auction);
+        var response = new CacheKeyDebugResponse
+        {
+            AuctionUuid = auction.Uuid,
+            CacheKey = cacheKey,
+            ItemTag = auction.Tag,
+            ItemName = auction.ItemName,
+            Tier = auction.Tier,
+            Reforge = auction.Reforge
+        };
+
+        return Ok(response);
+    }
 }
 
 public class FlipOpportunityDto
@@ -169,4 +256,44 @@ public class FlipStats
     public double AverageProfitMargin { get; set; }
     public long TotalPotentialProfit { get; set; }
     public List<string> TopCategories { get; set; } = new();
+}
+
+public class ReferenceDebugResponse
+{
+    public string AuctionUuid { get; set; } = string.Empty;
+    public string CacheKey { get; set; } = string.Empty;
+    public int InitialCount { get; set; }
+    public int ExpandedDayCount { get; set; }
+    public int ExpandedWeekCount { get; set; }
+    public int ReducedCount { get; set; }
+    public int RecentReducedCount { get; set; }
+    public int AntiManipulationSourceCount { get; set; }
+    public int BeforeAntiManipulationCount { get; set; }
+    public int AfterAntiManipulationCount { get; set; }
+    public List<ReferenceAuctionSummary> References { get; set; } = new();
+}
+
+public class ReferenceAuctionSummary
+{
+    public string AuctionUuid { get; set; } = string.Empty;
+    public string ItemTag { get; set; } = string.Empty;
+    public string? ItemName { get; set; }
+    public Tier Tier { get; set; }
+    public Reforge Reforge { get; set; }
+    public int Count { get; set; }
+    public AuctionStatus Status { get; set; }
+    public DateTime? SoldAt { get; set; }
+    public DateTime End { get; set; }
+    public long Price { get; set; }
+    public string CacheKey { get; set; } = string.Empty;
+}
+
+public class CacheKeyDebugResponse
+{
+    public string AuctionUuid { get; set; } = string.Empty;
+    public string CacheKey { get; set; } = string.Empty;
+    public string ItemTag { get; set; } = string.Empty;
+    public string? ItemName { get; set; }
+    public Tier Tier { get; set; }
+    public Reforge Reforge { get; set; }
 }

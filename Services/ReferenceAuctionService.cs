@@ -70,8 +70,15 @@ public class ReferenceAuctionService
         int hitCount,
         CancellationToken stoppingToken)
     {
+        using var metricTimer = FlipMetrics.MeasureReferenceSelection();
+        FlipMetrics.ReferenceSelectionCalls.Inc();
         var totalPrice = auction.HighestBidAmount > 0 ? auction.HighestBidAmount : auction.StartingBid;
-        return await EvaluateAuctionAsync(auction, totalPrice, hitCount, "BIN", stoppingToken);
+        var result = await EvaluateAuctionAsync(auction, totalPrice, hitCount, "BIN", stoppingToken);
+        if (result == null || result.ReferenceCount == 0)
+            FlipMetrics.ReferenceSelectionEmpty.Inc();
+        else
+            FlipMetrics.ReferenceCount.Set(result.ReferenceCount);
+        return result;
     }
 
     public async Task<FlipValuationResult?> EvaluateBidAuctionAsync(
@@ -79,11 +86,18 @@ public class ReferenceAuctionService
         int hitCount,
         CancellationToken stoppingToken)
     {
+        using var metricTimer = FlipMetrics.MeasureReferenceSelection();
+        FlipMetrics.ReferenceSelectionCalls.Inc();
         var expectedPrice = auction.HighestBidAmount == 0
             ? auction.StartingBid
             : (long)(auction.HighestBidAmount * 1.1);
 
-        return await EvaluateAuctionAsync(auction, expectedPrice, hitCount, "Bid", stoppingToken);
+        var result = await EvaluateAuctionAsync(auction, expectedPrice, hitCount, "Bid", stoppingToken);
+        if (result == null || result.ReferenceCount == 0)
+            FlipMetrics.ReferenceSelectionEmpty.Inc();
+        else
+            FlipMetrics.ReferenceCount.Set(result.ReferenceCount);
+        return result;
     }
 
     private async Task<FlipValuationResult?> EvaluateAuctionAsync(
@@ -383,6 +397,8 @@ public class ReferenceAuctionService
             .Include(a => a.Bids)
             .Include(a => a.Enchantments)
             .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTKey)
+            .Include(a => a.NBTLookups)
                 .ThenInclude(n => n.NBTValue)
             .OrderByDescending(a => a.Status == AuctionStatus.SOLD && a.SoldAt.HasValue ? a.SoldAt : a.End)
             .AsQueryable();
@@ -506,6 +522,8 @@ public class ReferenceAuctionService
 
         var roughLimit = Math.Max(limit * 8, 200);
         var candidates = await select
+            .Include(a => a.NBTLookups)
+                .ThenInclude(n => n.NBTKey)
             .Include(a => a.NBTLookups)
                 .ThenInclude(n => n.NBTValue)
             .Take(roughLimit)
