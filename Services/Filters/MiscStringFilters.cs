@@ -84,18 +84,21 @@ public sealed class CakeYearFilter : NbtNumberFilter
     private static readonly int CurrentYear = (int)((DateTime.Now - new DateTime(2019, 6, 13)).TotalDays
         / (TimeSpan.FromDays(5) + TimeSpan.FromHours(4)).TotalDays + 1);
 
-    public CakeYearFilter(AppDbContext dbContext) : base(dbContext, "new_years_cakes") { }
+    public CakeYearFilter(AppDbContext dbContext) : base(dbContext, "new_years_cake") { }
 
     public override IEnumerable<string> OptionsGet(FilterContext context) => new[] { "1", CurrentYear.ToString() };
 }
 
 /// <summary>
-/// Party Hat year filter — number range on "party_hat_year" NBT key.
+/// Party Hat year filter — EQUAL type (exact match, not range) on "party_hat_year" NBT key.
+/// Matches coflnet behavior: FilterType.Equal.
 /// </summary>
 public sealed class PartyHatYearFilter : NbtNumberFilter
 {
     public PartyHatYearFilter(AppDbContext dbContext) : base(dbContext, "party_hat_year") { }
 
+    public override string Name => "PartyHatYear";
+    public override FilterType FilterType => FilterType.EQUAL;
     public override IEnumerable<string> OptionsGet(FilterContext context) => new[] { "1", "100" };
 }
 

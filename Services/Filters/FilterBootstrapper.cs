@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using SkyFlipperSolo.Data;
+using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
@@ -171,5 +172,52 @@ public static class FilterBootstrapper
         registry.Add(provider.GetRequiredService<PartyHatEmojiFilter>());
         registry.Add(provider.GetRequiredService<FairyColorFilter>());
         registry.Add(provider.GetRequiredService<CrystalColorFilter>());
+
+        // Enchant aliases
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.ultimate_duplex, "ultimate_duplex"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.ultimate_reiterate, "ultimate_reiterate"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.pristine, "pristine"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.pristine, "prismatic"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.dragon_hunter, "gravity"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.syphon, "drain"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.experience, "ExperienceEnchant"));
+        registry.Add(new EnchantBaseFilter(dbContext, EnchantmentType.mana_steal, "ManaStealEnchant"));
+
+        // Per-enchant type loop
+        foreach (var enchant in Enum.GetValues<EnchantmentType>())
+        {
+            if (enchant == EnchantmentType.unknown) continue;
+            registry.Add(new EnchantBaseFilter(dbContext, enchant));
+        }
+
+        // Remaining coflnet filters
+        registry.Add(provider.GetRequiredService<CandyFilter>());
+        registry.Add(provider.GetRequiredService<JalapenoBookFilter>());
+        registry.Add(provider.GetRequiredService<BassWeightFilter>());
+        registry.Add(provider.GetRequiredService<ItemTierFilter>());
+        registry.Add(provider.GetRequiredService<PowderCoatingFilter>());
+        registry.Add(provider.GetRequiredService<GrowthStagesFilter>());
+        registry.Add(provider.GetRequiredService<UIdFilter>());
+        registry.Add(provider.GetRequiredService<CrabHatColorFilter>());
+        registry.Add(provider.GetRequiredService<TalismanEnrichmentFilter>());
+        registry.Add(provider.GetRequiredService<DungeonSkillReqFilter>());
+        registry.Add(provider.GetRequiredService<RodHookFilter>());
+        registry.Add(provider.GetRequiredService<RodLineFilter>());
+        registry.Add(provider.GetRequiredService<RodSinkerFilter>());
+        registry.Add(provider.GetRequiredService<LogsCutFilter>());
+        registry.Add(provider.GetRequiredService<AbsorbLogsFilter>());
+        registry.Add(provider.GetRequiredService<AxeBoostersFilter>());
+        registry.Add(provider.GetRequiredService<PlarvoidBookFilter>());
+        registry.Add(provider.GetRequiredService<ItemIdFilter>());
+        registry.Add(provider.GetRequiredService<ItemTagFilter>());
+        registry.Add(provider.GetRequiredService<EverythingFilter>());
+        registry.Add(provider.GetRequiredService<ItemNameContainsFilter>());
+        registry.Add(provider.GetRequiredService<JyrreMaxFilter>());
+        registry.Add(provider.GetRequiredService<SecondEnchantmentFilter>());
+        registry.Add(provider.GetRequiredService<SecondEnchantLvlFilter>());
+        registry.Add(provider.GetRequiredService<NoOtherValuableEnchantsFilter>());
+        registry.Add(provider.GetRequiredService<PricePerLevelFilter>());
+        registry.Add(provider.GetRequiredService<PricePerUnitFilter>());
+        registry.Add(provider.GetRequiredService<CostPerExpPlusBaseFilter>());
     }
 }

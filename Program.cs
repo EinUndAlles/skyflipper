@@ -191,6 +191,36 @@ builder.Services.AddScoped<PartyHatColorFilter>();
 builder.Services.AddScoped<PartyHatEmojiFilter>();
 builder.Services.AddScoped<FairyColorFilter>();
 builder.Services.AddScoped<CrystalColorFilter>();
+
+// Remaining coflnet filters
+builder.Services.AddScoped<CandyFilter>();
+builder.Services.AddScoped<JalapenoBookFilter>();
+builder.Services.AddScoped<BassWeightFilter>();
+builder.Services.AddScoped<ItemTierFilter>();
+builder.Services.AddScoped<PowderCoatingFilter>();
+builder.Services.AddScoped<GrowthStagesFilter>();
+builder.Services.AddScoped<UIdFilter>();
+builder.Services.AddScoped<CrabHatColorFilter>();
+builder.Services.AddScoped<TalismanEnrichmentFilter>();
+builder.Services.AddScoped<DungeonSkillReqFilter>();
+builder.Services.AddScoped<RodHookFilter>();
+builder.Services.AddScoped<RodLineFilter>();
+builder.Services.AddScoped<RodSinkerFilter>();
+builder.Services.AddScoped<LogsCutFilter>();
+builder.Services.AddScoped<AbsorbLogsFilter>();
+builder.Services.AddScoped<AxeBoostersFilter>();
+builder.Services.AddScoped<PlarvoidBookFilter>();
+builder.Services.AddScoped<ItemIdFilter>();
+builder.Services.AddScoped<ItemTagFilter>();
+builder.Services.AddScoped<EverythingFilter>();
+builder.Services.AddScoped<ItemNameContainsFilter>();
+builder.Services.AddScoped<JyrreMaxFilter>();
+builder.Services.AddScoped<SecondEnchantmentFilter>();
+builder.Services.AddScoped<SecondEnchantLvlFilter>();
+builder.Services.AddScoped<NoOtherValuableEnchantsFilter>();
+builder.Services.AddScoped<PricePerLevelFilter>();
+builder.Services.AddScoped<PricePerUnitFilter>();
+builder.Services.AddScoped<CostPerExpPlusBaseFilter>();
 // Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management
