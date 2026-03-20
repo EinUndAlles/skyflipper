@@ -115,7 +115,7 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
         const fetchAuctions = async () => {
             try {
                 setLoading(true);
-                const data = await api.getAuctionsByTag(tag, 200, nameFilter);
+                const data = await api.getAuctionsByTag(tag, 200, nameFilter, true, false, activeFilters);
                 setAuctions(data);
             } catch (err) {
                 console.error(err);
@@ -129,82 +129,23 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
         if (tag) {
             fetchAuctions();
         }
-    }, [tag, nameFilter]);
+    }, [tag, nameFilter, activeFilters]);
 
     // Convert UI filters to Coflnet API filter format for price chart
+    // Pass all active filters through directly (keys match backend filter names)
     const priceChartFilter = useMemo((): PriceItemFilter => {
         const filter: PriceItemFilter = {};
-        
-        // Map our filter keys to Coflnet's expected format
-        if (activeFilters.Rarity) {
-            filter.Rarity = activeFilters.Rarity;
-        }
-        if (activeFilters.Reforge) {
-            filter.Reforge = activeFilters.Reforge;
-        }
-        if (activeFilters.Enchantment) {
-            filter.Enchantment = activeFilters.Enchantment;
-        }
-        // Pet-specific: pass the name filter for pet level filtering
-        if (nameFilter) {
-            // Coflnet uses PetItem for pet name filtering
-            filter.PetItem = nameFilter;
-        }
-        
+        Object.entries(activeFilters).forEach(([key, value]) => {
+            if (value) filter[key] = value;
+        });
         return filter;
-    }, [activeFilters, nameFilter]);
+    }, [activeFilters]);
 
     // Client-side filter application
+    // Server applies all filters now — keep client-side only for quick local sort/display
     const filteredAuctions = useMemo(() => {
-        let result = [...auctions];
-
-        // BIN filter
-        if (activeFilters.Bin === 'true') {
-            result = result.filter(a => a.bin);
-        } else if (activeFilters.Bin === 'false') {
-            result = result.filter(a => !a.bin);
-        }
-
-        // Rarity filter
-        if (activeFilters.Rarity) {
-            result = result.filter(a => a.tier === activeFilters.Rarity);
-        }
-
-        // Min Price filter
-        if (activeFilters.MinPrice) {
-            const minPrice = parseInt(activeFilters.MinPrice);
-            if (!isNaN(minPrice)) {
-                result = result.filter(a => a.price >= minPrice);
-            }
-        }
-
-        // Max Price filter
-        if (activeFilters.MaxPrice) {
-            const maxPrice = parseInt(activeFilters.MaxPrice);
-            if (!isNaN(maxPrice)) {
-                result = result.filter(a => a.price <= maxPrice);
-            }
-        }
-
-        // Reforge filter
-        if (activeFilters.Reforge) {
-            result = result.filter(a =>
-                a.reforge && a.reforge.toLowerCase() === activeFilters.Reforge.toLowerCase()
-            );
-        }
-
-        // Enchantment filter
-        if (activeFilters.Enchantment) {
-            result = result.filter(a =>
-                a.enchantments && a.enchantments.some(e => {
-                    const enchType = typeof e.type === 'string' ? e.type : String(e.type);
-                    return enchType.toLowerCase() === activeFilters.Enchantment.toLowerCase();
-                })
-            );
-        }
-
-        return result;
-    }, [auctions, activeFilters]);
+        return [...auctions];
+    }, [auctions]);
 
     if (loading) {
         return (

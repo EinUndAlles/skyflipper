@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Card, Form, Button, Row, Col, Spinner } from 'react-bootstrap';
+import { Card, Form, Button, Row, Col, Spinner, Badge } from 'react-bootstrap';
 import { ItemFilter, FilterOptions, FilterType, FilterTypeHelper } from '@/types/filters';
 
 interface Props {
@@ -11,10 +11,33 @@ interface Props {
     ignoreURL?: boolean;
 }
 
+// Group filters by category for better UX with 345+ filters
+function categorizeFilter(name: string): string {
+    const n = name.toLowerCase();
+    if (n.includes('enchant') || n === 'ultimate_duplex' || n === 'ultimate_reiterate' || n === 'pristine' || n === 'prismatic' || n === 'gravity' || n === 'drain') return 'Enchants';
+    if (n.includes('rune')) return 'Runes';
+    if (n.includes('gem') || n.includes('gemtype')) return 'Gems';
+    if (n.includes('attr') || n === 'lifeline' || n === 'veteran' || n === 'mana_pool' || n === 'dominance' || n === 'vitality' || n === 'speed' || n === 'combo') return 'Attributes';
+    if (n.includes('kill') || n.includes('killed') || n.includes('handles') || n.includes('consumer') || n.includes('runic')) return 'Kills';
+    if (n.includes('skin') || n.includes('pet')) return 'Pets & Skins';
+    if (n.includes('color') || n.includes('dye') || n.includes('exotic') || n.includes('fairy') || n.includes('crystal')) return 'Colors';
+    if (n.includes('drill') || n.includes('part') || n.includes('tuned') || n.includes('power_ability')) return 'Drills';
+    if (n.includes('mined') || n.includes('farmed') || n.includes('blocks') || n.includes('cultivating') || n.includes('logs') || n.includes('axe') || n.includes('absorb')) return 'Counters';
+    if (n.includes('cake') || n.includes('party') || n.includes('seller') || n.includes('captured') || n.includes('edition')) return 'Misc';
+    if (n.includes('raffle') || n.includes('chimera') || n.includes('collected') || n.includes('jyrre') || n.includes('intelligence') || n.includes('thunder') || n.includes('pickonimbus') || n.includes('mana_dis')) return 'Stats';
+    if (n.includes('shiny') || n.includes('peace') || n.includes('singularity') || n.includes('model') || n.includes('clean') || n.includes('sold') || n.includes('everything')) return 'Flags';
+    if (n.includes('candy') || n.includes('tier') || n.includes('uid') || n.includes('tag') || n.includes('item_id') || n.includes('name') || n.includes('powder') || n.includes('growth') || n.includes('bass') || n.includes('jalapeno') || n.includes('plarvoid') || n.includes('dungeon')) return 'Item';
+    if (n.includes('price') || n.includes('cost')) return 'Pricing';
+    return 'Core';
+}
+
+const CATEGORY_ORDER = ['Core', 'Enchants', 'Pets & Skins', 'Gems', 'Attributes', 'Kills', 'Counters', 'Stats', 'Colors', 'Runes', 'Drills', 'Flags', 'Item', 'Misc', 'Pricing'];
+
 export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter, ignoreURL }: Props) {
     const [itemFilter, setItemFilter] = useState<ItemFilter>(defaultFilter || {});
     const [expanded, setExpanded] = useState(false);
     const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
     
     // Initialize selectedFilters based on defaultFilter keys
     useEffect(() => {
@@ -64,6 +87,24 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
         return filters.filter(f => !selectedFilters.includes(f.name));
     }, [filters, selectedFilters]);
 
+    // Filter and group available filters by search query
+    const groupedFilters = useMemo(() => {
+        const filtered = searchQuery
+            ? availableFilters.filter(f =>
+                f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                f.name.replace(/_/g, ' ').toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            : availableFilters;
+
+        const groups: Record<string, FilterOptions[]> = {};
+        for (const f of filtered) {
+            const cat = categorizeFilter(f.name);
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(f);
+        }
+        return groups;
+    }, [availableFilters, searchQuery]);
+
     if (!expanded) {
         return (
             <div className="mb-3">
@@ -72,7 +113,7 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                     onClick={() => setExpanded(true)}
                     className="w-100"
                 >
-                    + Add Filters
+                    + Add Filters {selectedFilters.length > 0 && `(${selectedFilters.length} active)`}
                 </Button>
             </div>
         );
@@ -81,7 +122,7 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
     return (
         <Card className="bg-dark text-light border-secondary mb-3">
             <Card.Header className="d-flex justify-content-between align-items-center">
-                <span className="fw-bold">Filters</span>
+                <span className="fw-bold">Filters {selectedFilters.length > 0 && <Badge bg="primary">{selectedFilters.length}</Badge>}</span>
                 <Button variant="link" size="sm" className="text-light" onClick={() => setExpanded(false)}>
                     ✕
                 </Button>
@@ -94,25 +135,47 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                     </div>
                 ) : (
                     <>
-                        {/* Add filter dropdown */}
+                        {/* Search + add filter */}
                         <Row className="mb-3">
                             <Col>
-                                <Form.Select
-                                    className="bg-dark text-light border-secondary"
-                                    value=""
-                                    onChange={(e) => {
-                                        if (e.target.value) {
-                                            addFilter(e.target.value);
-                                        }
-                                    }}
-                                >
-                                    <option value="">+ Add filter...</option>
-                                    {availableFilters.map(f => (
-                                        <option key={f.name} value={f.name}>
-                                            {f.name.replace(/_/g, ' ')}
-                                        </option>
-                                    ))}
-                                </Form.Select>
+                                <Form.Control
+                                    type="text"
+                                    placeholder="Search filters..."
+                                    className="bg-dark text-light border-secondary mb-2"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                                <div style={{ maxHeight: '300px', overflowY: 'auto' }} className="border border-secondary rounded p-2">
+                                    {CATEGORY_ORDER.map(cat => {
+                                        const items = groupedFilters[cat];
+                                        if (!items || items.length === 0) return null;
+                                        return (
+                                            <div key={cat} className="mb-2">
+                                                <div className="text-muted small fw-bold mb-1">{cat} ({items.length})</div>
+                                                <div className="d-flex flex-wrap gap-1">
+                                                    {items.slice(0, 20).map(f => (
+                                                        <Button
+                                                            key={f.name}
+                                                            variant="outline-secondary"
+                                                            size="sm"
+                                                            className="py-0 px-2"
+                                                            style={{ fontSize: '0.75rem' }}
+                                                            onClick={() => addFilter(f.name)}
+                                                        >
+                                                            + {f.name.replace(/_/g, ' ')}
+                                                        </Button>
+                                                    ))}
+                                                    {items.length > 20 && (
+                                                        <span className="text-muted small">+{items.length - 20} more...</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {Object.keys(groupedFilters).length === 0 && (
+                                        <div className="text-muted text-center py-2">No matching filters</div>
+                                    )}
+                                </div>
                             </Col>
                         </Row>
 
@@ -124,7 +187,7 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
 
                                 return (
                                     <div key={filterName} className="d-flex align-items-center gap-1 bg-secondary rounded p-2">
-                                        <span className="small text-light me-1">{filterName.replace(/_/g, ' ')}:</span>
+                                        <span className="small text-light me-1" style={{ whiteSpace: 'nowrap' }}>{filterName.replace(/_/g, ' ')}:</span>
 
                                         {FilterTypeHelper.HasFlag(filterOption.type, FilterType.BOOLEAN) ? (
                                             <Form.Check
@@ -134,13 +197,13 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                             />
                                         ) : FilterTypeHelper.HasFlag(filterOption.type, FilterType.NUMERICAL) ? (
                                             <Form.Control
-                                                type="number"
+                                                type="text"
                                                 size="sm"
                                                 style={{ width: '100px' }}
                                                 className="bg-dark text-light border-secondary"
                                                 value={itemFilter[filterName] || ''}
                                                 onChange={(e) => handleFilterChange(filterName, e.target.value)}
-                                                placeholder="Value"
+                                                placeholder="0-10 or >5"
                                             />
                                         ) : (
                                             <Form.Select

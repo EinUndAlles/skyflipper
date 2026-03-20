@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Auction, AuctionWithProperties, Stats, TagCount } from '../types';
-import { ItemPrice, DateRange, ItemFilter, PriceHistoryResponse } from '../types/priceHistory';
+import { ItemPrice, DateRange, ItemFilter as PriceItemFilter, PriceHistoryResponse } from '../types/priceHistory';
+import { ItemFilter } from '../types/filters';
 import { FlipNotification } from '../types/flip';
 
 const API_BASE_URL = 'http://localhost:5135/api';
@@ -52,21 +53,17 @@ export const api = {
         filter?: string,
         binOnly: boolean = true,
         showEnded: boolean = false,
-        minStars?: number,
-        maxStars?: number,
-        enchantment?: string,
-        minEnchantLevel?: number,
-        minPrice?: number,
-        maxPrice?: number
+        itemFilter?: ItemFilter
     ): Promise<Auction[]> => {
         const params: any = { limit, binOnly, showEnded };
         if (filter) params.filter = filter;
-        if (minStars !== undefined) params.minStars = minStars;
-        if (maxStars !== undefined) params.maxStars = maxStars;
-        if (enchantment) params.enchantment = enchantment;
-        if (minEnchantLevel !== undefined) params.minEnchantLevel = minEnchantLevel;
-        if (minPrice !== undefined) params.minPrice = minPrice;
-        if (maxPrice !== undefined) params.maxPrice = maxPrice;
+
+        // Pass all item filter keys as query params for the generic filter engine
+        if (itemFilter && Object.keys(itemFilter).length > 0) {
+            Object.entries(itemFilter).forEach(([key, value]) => {
+                if (value) params[key] = value;
+            });
+        }
 
         const response = await axios.get<Auction[]>(`${API_BASE_URL}/auctions/by-tag/${tag}`, {
             params

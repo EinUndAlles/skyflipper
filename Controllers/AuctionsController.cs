@@ -217,6 +217,28 @@ public class AuctionsController : ControllerBase
             query = query.Where(a => (a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid) <= maxPrice.Value);
         }
         
+        // --- Generic filter engine (345+ registered filters) ---
+        // Apply any query params that match registered filter names
+        var filterRegistry = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterRegistry>();
+        var filterContext = new Services.Filters.FilterContext(
+            Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString()));
+        
+        foreach (var regFilter in filterRegistry.Filters)
+        {
+            var value = filterContext.Get(regFilter.Name);
+            if (!string.IsNullOrEmpty(value))
+            {
+                try
+                {
+                    query = regFilter.Apply(query, filterContext);
+                }
+                catch
+                {
+                    // Skip filters that fail to apply (e.g., missing NBT keys)
+                }
+            }
+        }
+        
         var auctions = await query
             .OrderBy(a => a.HighestBidAmount > 0 ? a.HighestBidAmount : a.StartingBid) // Sort by price (cheapest first)
             .Take(limit)

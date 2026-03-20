@@ -54,18 +54,17 @@ function SearchContent() {
             try {
                 let results: Auction[] = [];
                 if (q) {
+                    const searchFilter: Record<string, string> = {};
+                    if (minPrice) searchFilter.StartingBid = `>${minPrice}`;
+                    if (maxPrice) searchFilter.HighestBid = `<${maxPrice}`;
+                    if (rarityFilter) searchFilter.Rarity = rarityFilter;
                     results = await api.getAuctionsByTag(
-                        q, 
-                        200, 
-                        undefined, 
-                        binOnly, 
+                        q,
+                        200,
+                        undefined,
+                        binOnly,
                         false,
-                        undefined,
-                        undefined,
-                        undefined,
-                        undefined,
-                        minPrice ? parseInt(minPrice) : undefined,
-                        maxPrice ? parseInt(maxPrice) : undefined
+                        Object.keys(searchFilter).length > 0 ? searchFilter : undefined
                     );
                 } else {
                     results = await api.getRecentAuctions(200);
