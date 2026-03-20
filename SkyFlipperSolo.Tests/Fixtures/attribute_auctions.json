@@ -1,0 +1,71 @@
+{
+  "auction": {
+    "uuid": "fixture-attr-auction",
+    "tag": "CRIMSON_CHESTPLATE",
+    "itemName": "Crimson Chestplate",
+    "tier": "MYTHIC",
+    "count": 1,
+    "bin": true,
+    "status": "ACTIVE",
+    "startingBid": 50000000,
+    "highestBidAmount": 0,
+    "end": "2030-01-01T00:00:00Z",
+    "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [
+      { "type": "growth", "level": 5 }
+    ],
+    "nbt": {
+      "rarity_upgrades": "1",
+      "lifeline": "5",
+      "veteran": "4"
+    }
+  },
+  "references": [
+    {
+      "uuid": "fixture-attr-ref-1",
+      "tag": "CRIMSON_CHESTPLATE",
+      "itemName": "Crimson Chestplate",
+      "tier": "MYTHIC",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 52000000,
+      "highestBidAmount": 0,
+      "soldPrice": 52500000,
+      "soldAt": "2025-04-01T00:00:00Z",
+      "end": "2025-04-01T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+      "enchantments": [
+        { "type": "growth", "level": 5 }
+      ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "lifeline": "5",
+        "veteran": "4"
+      }
+    },
+    {
+      "uuid": "fixture-attr-ref-2",
+      "tag": "CRIMSON_CHESTPLATE",
+      "itemName": "Crimson Chestplate",
+      "tier": "MYTHIC",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 51000000,
+      "highestBidAmount": 0,
+      "soldPrice": 51500000,
+      "soldAt": "2025-04-02T00:00:00Z",
+      "end": "2025-04-02T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+      "enchantments": [
+        { "type": "growth", "level": 5 }
+      ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "lifeline": "5",
+        "veteran": "4"
+      }
+    }
+  ]
+}

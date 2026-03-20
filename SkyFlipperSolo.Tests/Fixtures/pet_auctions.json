@@ -1,0 +1,68 @@
+{
+  "auction": {
+    "uuid": "fixture-pet-auction",
+    "tag": "PET_DRAGON",
+    "itemName": "[Lvl 100] Ender Dragon",
+    "tier": "LEGENDARY",
+    "count": 1,
+    "bin": true,
+    "status": "ACTIVE",
+    "startingBid": 400000000,
+    "highestBidAmount": 0,
+    "end": "2030-01-01T00:00:00Z",
+    "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [],
+    "nbt": {
+      "exp": "10000000",
+      "candyUsed": "0",
+      "heldItem": "PET_ITEM_EXP_SHARE",
+      "skin": "DRAGON_NEON"
+    }
+  },
+  "references": [
+    {
+      "uuid": "fixture-pet-ref-1",
+      "tag": "PET_DRAGON",
+      "itemName": "[Lvl 100] Ender Dragon",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 450000000,
+      "highestBidAmount": 0,
+      "soldPrice": 455000000,
+      "soldAt": "2025-02-01T00:00:00Z",
+      "end": "2025-02-01T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+      "enchantments": [],
+      "nbt": {
+        "exp": "10000000",
+        "candyUsed": "0",
+        "heldItem": "PET_ITEM_EXP_SHARE",
+        "skin": "DRAGON_NEON"
+      }
+    },
+    {
+      "uuid": "fixture-pet-ref-2",
+      "tag": "PET_DRAGON",
+      "itemName": "[Lvl 100] Ender Dragon",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 440000000,
+      "highestBidAmount": 0,
+      "soldPrice": 445000000,
+      "soldAt": "2025-02-03T00:00:00Z",
+      "end": "2025-02-03T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+      "enchantments": [],
+      "nbt": {
+        "exp": "10000000",
+        "candyUsed": "0",
+        "heldItem": "PET_ITEM_EXP_SHARE",
+        "skin": "DRAGON_NEON"
+      }
+    }
+  ]
+}

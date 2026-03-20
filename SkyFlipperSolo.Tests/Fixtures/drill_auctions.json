@@ -1,0 +1,74 @@
+{
+  "auction": {
+    "uuid": "fixture-drill-auction",
+    "tag": "GEMSTONE_DRILL_4",
+    "itemName": "Gemstone Drill 4",
+    "tier": "LEGENDARY",
+    "count": 1,
+    "bin": true,
+    "status": "ACTIVE",
+    "startingBid": 150000000,
+    "highestBidAmount": 0,
+    "end": "2030-01-01T00:00:00Z",
+    "itemCreatedAt": "2025-01-01T00:00:00Z",
+    "enchantments": [
+      { "type": "efficiency", "level": 5 }
+    ],
+    "nbt": {
+      "rarity_upgrades": "1",
+      "drill_part_engine": "FUEL_TANK_X",
+      "drill_part_fuel_tank": "FUEL_TANK_X",
+      "drill_part_upgrade_module": "UPGRADE_MODULE_X"
+    }
+  },
+  "references": [
+    {
+      "uuid": "fixture-drill-ref-1",
+      "tag": "GEMSTONE_DRILL_4",
+      "itemName": "Gemstone Drill 4",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 160000000,
+      "highestBidAmount": 0,
+      "soldPrice": 162000000,
+      "soldAt": "2025-03-01T00:00:00Z",
+      "end": "2025-03-01T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+      "enchantments": [
+        { "type": "efficiency", "level": 5 }
+      ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "drill_part_engine": "FUEL_TANK_X",
+        "drill_part_fuel_tank": "FUEL_TANK_X",
+        "drill_part_upgrade_module": "UPGRADE_MODULE_X"
+      }
+    },
+    {
+      "uuid": "fixture-drill-ref-2",
+      "tag": "GEMSTONE_DRILL_4",
+      "itemName": "Gemstone Drill 4",
+      "tier": "LEGENDARY",
+      "count": 1,
+      "bin": true,
+      "status": "SOLD",
+      "startingBid": 158000000,
+      "highestBidAmount": 0,
+      "soldPrice": 159000000,
+      "soldAt": "2025-03-02T00:00:00Z",
+      "end": "2025-03-02T00:00:00Z",
+      "itemCreatedAt": "2025-01-01T00:00:00Z",
+      "enchantments": [
+        { "type": "efficiency", "level": 5 }
+      ],
+      "nbt": {
+        "rarity_upgrades": "1",
+        "drill_part_engine": "FUEL_TANK_X",
+        "drill_part_fuel_tank": "FUEL_TANK_X",
+        "drill_part_upgrade_module": "UPGRADE_MODULE_X"
+      }
+    }
+  ]
+}
