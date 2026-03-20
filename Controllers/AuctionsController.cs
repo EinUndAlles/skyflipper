@@ -317,62 +317,20 @@ public class AuctionsController : ControllerBase
     [HttpGet("filters/{tag}")]
     public IActionResult GetFiltersByTag(string tag)
     {
-        var upperTag = tag.ToUpper();
+        var engine = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterEngine>();
+        var registry = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterRegistry>();
 
-        // Return common filters that apply to most items
-        var commonFilters = new List<FilterOptions>
-        {
-            // Stars filter (dungeon item level)
-            new FilterOptions
+        var options = registry.Filters
+            .Select(filter => new FilterOptions
             {
-                Name = "Stars",
-                Type = FilterType.NUMERICAL | FilterType.RANGE,
-                Options = new[] { "0", "1", "2", "3", "4", "5" }
-            },
-            // Rarity filter
-            new FilterOptions
-            {
-                Name = "Rarity",
-                Type = FilterType.EQUAL,
-                Options = new[] { "COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC", "SPECIAL" }
-            },
-            // Reforge filter
-            new FilterOptions
-            {
-                Name = "Reforge",
-                Type = FilterType.EQUAL,
-                Options = Enum.GetNames(typeof(Reforge))
-            },
-            // Enchantment filter
-            new FilterOptions
-            {
-                Name = "Enchantment",
-                Type = FilterType.EQUAL,
-                Options = Enum.GetNames(typeof(EnchantmentType))
-            },
-            // BIN filter
-            new FilterOptions
-            {
-                Name = "Bin",
-                Type = FilterType.BOOLEAN,
-                Options = new[] { "true", "false" }
-            },
-            // Min/Max price filter
-            new FilterOptions
-            {
-                Name = "MinPrice",
-                Type = FilterType.NUMERICAL | FilterType.RANGE,
-                Options = new[] { "0", "50000000", "100000000", "5000000000", "10000000000" }
-            },
-            new FilterOptions
-            {
-                Name = "MaxPrice",
-                Type = FilterType.NUMERICAL | FilterType.RANGE,
-                Options = new[] { "0", "500000", "1000000", "10000000", "500000000" }
-            }
-        };
+                Name = filter.Name,
+                Type = filter.FilterType,
+                LongType = filter.FilterType.ToString(),
+                Options = filter.OptionsGet(new Services.Filters.FilterContext(new Dictionary<string, string>())).ToArray()
+            })
+            .ToList();
 
-        return Ok(commonFilters);
+        return Ok(options);
     }
 
     /// <summary>
@@ -724,50 +682,12 @@ public class AuctionsController : ControllerBase
     }
 
     /// <summary>
-    /// Apply filters to auction query (simplified version of SkyFilter's FilterEngine)
+    /// Apply filters to auction query using FilterEngine.
     /// </summary>
     private IQueryable<Auction> ApplyFilters(IQueryable<Auction> query, IDictionary<string, string> filters)
     {
-        foreach (var filter in filters)
-        {
-            if (string.IsNullOrEmpty(filter.Value))
-                continue;
-
-            switch (filter.Key.ToLower())
-            {
-                case "rarity":
-                    if (Enum.TryParse<Tier>(filter.Value, true, out var tier))
-                    {
-                        query = query.Where(a => a.Tier == tier);
-                    }
-                    break;
-                    
-                case "reforge":
-                    if (Enum.TryParse<Reforge>(filter.Value, true, out var reforge))
-                    {
-                        query = query.Where(a => a.Reforge == reforge);
-                    }
-                    break;
-                    
-                case "bin":
-                    if (bool.TryParse(filter.Value, out var binOnly))
-                    {
-                        query = query.Where(a => a.Bin == binOnly);
-                    }
-                    break;
-                    
-                case "petitem":
-                case "petname":
-                case "namefilter":
-                    // For pets, filter by name containing the value
-                    query = query.Where(a => a.ItemName.Contains(filter.Value));
-                    break;
-                    
-                // Add more filters as needed (Stars, Enchantments, etc.)
-            }
-        }
-        
-        return query;
+        var engine = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterEngine>();
+        return engine.ApplyFilters(query, filters);
     }
 
     /// <summary>

@@ -16,6 +16,11 @@ public class FilterOptions
     public FilterType Type { get; set; }
 
     /// <summary>
+    /// Filter type as string for compatibility.
+    /// </summary>
+    public string LongType { get; set; } = string.Empty;
+
+    /// <summary>
     /// Available options/values for this filter
     /// </summary>
     public string[] Options { get; set; } = Array.Empty<string>();

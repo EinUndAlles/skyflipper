@@ -17,6 +17,16 @@
 ## Cache
 - Reference cache uses Redis distributed cache (2h TTL).
 
+## Filters
+- FilterEngine/FilterRegistry with SkyFilter-compatible FilterType flags.
+- `NbtNumberFilter` base: number range queries against `NBTLookups.ValueNumeric`.
+- `NbtStringFilter` base: exact/any/none matching via `NBTLookups.ValueId` + `NBTValues`.
+- `BoolNbtFilter` base: presence/absence check on `NBTLookups.KeyId`.
+- `NumberFilterBase` base: abstract range filtering with `RangeParser`.
+- ~109 of ~175 coflnet filters implemented (see `tasks/tasks_plan.md` for batch tracker).
+- All filters registered in `FilterBootstrapper.RegisterCoreFilters()`.
+- DI: scoped for filters using AppDbContext, singleton otherwise.
+
 ## NBT Storage
 - Legacy `NBTLookups.Key` and `NBTLookups.ValueString` removed.
 - NBT lookups now use `KeyId` and `ValueId` exclusively.

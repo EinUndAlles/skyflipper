@@ -6,6 +6,7 @@ using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Hubs;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
+using SkyFlipperSolo.Services.Filters;
 using Microsoft.Extensions.Caching.Distributed;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -80,6 +81,75 @@ builder.Services.AddSingleton<ReferenceCacheService>(); // Redis-backed referenc
 builder.Services.AddSingleton<ReferenceAuctionService>(); // Coflnet-style reference auction matching
 builder.Services.AddSingleton<PropertiesSelectorService>(); // Item property formatting
 builder.Services.AddSingleton<ComponentValueService>(); // Component valuation service
+builder.Services.AddSingleton<FilterRegistry>();
+builder.Services.AddSingleton<FilterEngine>();
+builder.Services.AddScoped<StarsFilter>();
+builder.Services.AddSingleton<RarityFilter>();
+builder.Services.AddSingleton<ReforgeFilter>();
+builder.Services.AddSingleton<BinFilter>();
+builder.Services.AddSingleton<StartingBidFilter>();
+builder.Services.AddSingleton<HighestBidFilter>();
+builder.Services.AddSingleton<CountFilter>();
+builder.Services.AddSingleton<EnchantmentFilter>();
+builder.Services.AddSingleton<EnchantLvlFilter>();
+builder.Services.AddScoped<HotPotatoCountFilter>();
+builder.Services.AddScoped<ArtOfTheWarFilter>();
+builder.Services.AddScoped<FarmingForDummiesFilter>();
+builder.Services.AddScoped<RecombobulatedFilter>();
+builder.Services.AddScoped<EthermergeFilter>();
+builder.Services.AddScoped<AbilityScrollFilter>();
+builder.Services.AddScoped<SkinFilter>();
+builder.Services.AddScoped<WinningBidFilter>();
+builder.Services.AddScoped<EditionFilter>();
+builder.Services.AddScoped<CapturedPlayerFilter>();
+builder.Services.AddSingleton<EndBeforeFilter>();
+builder.Services.AddSingleton<EndAfterFilter>();
+builder.Services.AddSingleton<ItemCreatedBeforeFilter>();
+builder.Services.AddSingleton<ItemCreatedAfterFilter>();
+builder.Services.AddScoped<PetLevelFilter>();
+builder.Services.AddScoped<PetItemFilter>();
+builder.Services.AddScoped<PetSkinFilter>();
+builder.Services.AddScoped<PetExpFilter>();
+builder.Services.AddScoped<ColorFilter>();
+builder.Services.AddScoped<HexColorListFilter>();
+builder.Services.AddScoped<ExoticColorFilter>();
+builder.Services.AddScoped<DyeItemFilter>();
+builder.Services.AddScoped<UnlockedSlotsFilter>();
+builder.Services.AddScoped<UnlockedSlotsMatchFilter>();
+builder.Services.AddScoped<HasAttributeFilter>();
+builder.Services.AddScoped<PerfectGemsCountFilter>();
+builder.Services.AddScoped<FlawlessGemsCountFilter>();
+
+// Kills / counter filters
+builder.Services.AddScoped<ZombieKillsFilter>();
+builder.Services.AddScoped<SpiderKillsFilter>();
+builder.Services.AddScoped<EmanKillsFilter>();
+builder.Services.AddScoped<ExpertiseKillsFilter>();
+builder.Services.AddScoped<RaiderKillsFilter>();
+builder.Services.AddScoped<SwordKillsFilter>();
+builder.Services.AddScoped<BloodGodKillsFilter>();
+builder.Services.AddScoped<BlazeKillsFilter>();
+builder.Services.AddScoped<YogsKilledFilter>();
+builder.Services.AddScoped<BlazeConsumerFilter>();
+builder.Services.AddScoped<RunicKillsFilter>();
+builder.Services.AddScoped<HandlesFoundFilter>();
+
+// Stat counter filters
+builder.Services.AddScoped<BaseStatBoostFilter>();
+builder.Services.AddScoped<ManaDisintegratorFilter>();
+builder.Services.AddScoped<FarmedCultivatingFilter>();
+builder.Services.AddScoped<MinedCropsFilter>();
+builder.Services.AddScoped<BlocksBrokenFilter>();
+builder.Services.AddScoped<ThunderChargeFilter>();
+builder.Services.AddScoped<CollectedCoinsFilter>();
+builder.Services.AddScoped<ChimeraFoundFilter>();
+builder.Services.AddScoped<PickonimbusDurabilityFilter>();
+builder.Services.AddScoped<IntelligenceEarnedFilter>();
+builder.Services.AddScoped<RaffleWinCountFilter>();
+builder.Services.AddScoped<RaffleYearCountFilter>();
+
+// Special filters
+builder.Services.AddScoped<IntelligenceBonusFilter>();
 // Enable full functionality with background services
 builder.Services.AddHostedService<AuctionFetcherService>();
 builder.Services.AddHostedService<AuctionLifecycleService>(); // Comprehensive lifecycle management
@@ -146,6 +216,15 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         logger.LogWarning(ex, "Could not seed NBT keys - database may not be fully set up");
+    }
+
+    try
+    {
+        FilterBootstrapper.RegisterCoreFilters(scope.ServiceProvider);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not register core filters");
     }
 }
 

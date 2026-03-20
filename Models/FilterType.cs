@@ -1,8 +1,9 @@
 namespace SkyFlipperSolo.Models;
 
 /// <summary>
-/// Filter types enum matching hypixel-react implementation
+/// Filter types enum matching Coflnet SkyFilter
 /// </summary>
+[Flags]
 public enum FilterType
 {
     EQUAL = 1,
@@ -11,11 +12,11 @@ public enum FilterType
     DATE = 8,
     NUMERICAL = 16,
     RANGE = 32,
-    PLAYER = 64,
+    TEXT = 64,
     SIMPLE = 128,
     BOOLEAN = 256,
     PLAYER_WITH_RANK = 512,
-    SHOW_ICON = 1024
+    AppliedItem = 1024
 }
 
 /// <summary>
