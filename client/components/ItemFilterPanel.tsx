@@ -11,6 +11,17 @@ interface Props {
     ignoreURL?: boolean;
 }
 
+const FILTER_HINTS: Record<string, string> = {
+    PetLevel: 'Level of the pet. Use ranges like 1-200 or >100.',
+    PetExp: 'Pet experience. Supports ranges (e.g. >1000000).',
+    Candy: 'Candy count. 0 means not present.',
+    HotPotatoCount: 'Hot potato/fuming count. Supports ranges.',
+    EndBefore: 'Show auctions ending before this date/time.',
+    EndAfter: 'Show auctions ending after this date/time.',
+    ItemCreatedBefore: 'Show items created before this date/time.',
+    ItemCreatedAfter: 'Show items created after this date/time.'
+};
+
 // Group filters by category for better UX with 345+ filters
 function categorizeFilter(name: string): string {
     const n = name.toLowerCase();
@@ -36,6 +47,11 @@ const CATEGORY_ORDER = ['Core', 'Enchants', 'Pets & Skins', 'Gems', 'Attributes'
 function normalizeFilterType(type: FilterOptions['type'], longType?: string): FilterType {
     if (typeof type === 'number') return type as FilterType;
 
+    const numeric = Number(type);
+    if (!Number.isNaN(numeric) && Number.isFinite(numeric)) {
+        return numeric as FilterType;
+    }
+
     // Backend may serialize enums as strings, use longType/type name fallback.
     const value = (longType || type || '').toString();
     let flags = 0;
@@ -54,6 +70,7 @@ function normalizeFilterType(type: FilterOptions['type'], longType?: string): Fi
 
 export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter, ignoreURL }: Props) {
     const [itemFilter, setItemFilter] = useState<ItemFilter>(defaultFilter || {});
+    const [appliedFilter, setAppliedFilter] = useState<ItemFilter>(defaultFilter || {});
     const [expanded, setExpanded] = useState(false);
     const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -67,6 +84,7 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                 setExpanded(true); // Auto-expand if there are default filters
             }
             setItemFilter(defaultFilter);
+            setAppliedFilter(defaultFilter);
         }
     }, [defaultFilter]);
 
@@ -76,7 +94,11 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
             delete newFilter[filterName];
         }
         setItemFilter(newFilter);
-        onFilterChange?.(newFilter);
+    };
+
+    const applyFilters = () => {
+        setAppliedFilter(itemFilter);
+        onFilterChange?.(itemFilter);
     };
 
     const addFilter = (filterName: string) => {
@@ -92,13 +114,30 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
         const newFilter = { ...itemFilter };
         delete newFilter[filterName];
         setItemFilter(newFilter);
-        onFilterChange?.(newFilter);
     };
 
     const clearAllFilters = () => {
         setSelectedFilters([]);
         setItemFilter({});
+        setAppliedFilter({});
         onFilterChange?.({});
+    };
+
+    const hasPendingChanges = JSON.stringify(itemFilter) !== JSON.stringify(appliedFilter);
+
+    const getNumericPlaceholder = (filterName: string) => {
+        switch (filterName) {
+            case 'PetLevel':
+                return '1-200, >100';
+            case 'Candy':
+                return '0, 1-10';
+            case 'HotPotatoCount':
+                return '0-15';
+            case 'PetExp':
+                return '>1000000';
+            default:
+                return '5, 5-10, >5';
+        }
     };
 
     const availableFilters = useMemo(() => {
@@ -206,7 +245,13 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
 
                                 return (
                                     <div key={filterName} className="d-flex align-items-center gap-1 bg-secondary rounded p-2">
-                                        <span className="small text-light me-1" style={{ whiteSpace: 'nowrap' }}>{filterName.replace(/_/g, ' ')}:</span>
+                                        <span
+                                            className="small text-light me-1"
+                                            style={{ whiteSpace: 'nowrap' }}
+                                            title={FILTER_HINTS[filterName] || ''}
+                                        >
+                                            {filterName.replace(/_/g, ' ')}:
+                                        </span>
 
                                         {(() => {
                                             const ft = normalizeFilterType(filterOption.type, filterOption.longType);
@@ -244,7 +289,7 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                                     className="bg-dark text-light border-secondary"
                                                     value={itemFilter[filterName] || ''}
                                                     onChange={(e) => handleFilterChange(filterName, e.target.value)}
-                                                    placeholder="5, 5-10, >5"
+                                                    placeholder={getNumericPlaceholder(filterName)}
                                                 />
                                                 <span className="text-muted" style={{ fontSize: '0.75rem' }}>#</span>
                                             </div>
@@ -283,7 +328,15 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                         </div>
 
                         {selectedFilters.length > 0 && (
-                            <div className="mt-3">
+                            <div className="mt-3 d-flex gap-2">
+                                <Button
+                                    variant={hasPendingChanges ? 'primary' : 'outline-primary'}
+                                    size="sm"
+                                    onClick={applyFilters}
+                                    disabled={!hasPendingChanges}
+                                >
+                                    Apply Filters
+                                </Button>
                                 <Button
                                     variant="outline-danger"
                                     size="sm"
