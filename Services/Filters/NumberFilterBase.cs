@@ -7,6 +7,7 @@ public abstract class NumberFilterBase : IFilter
     public abstract string Name { get; }
     public virtual FilterType FilterType => FilterType.NUMERICAL | FilterType.RANGE;
     public virtual IEnumerable<string> OptionsGet(FilterContext context) => new[] { "0", "50000000000" };
+    public virtual bool IsApplicable(string tag) => true;
 
     public IQueryable<Auction> Apply(IQueryable<Auction> query, FilterContext context)
     {

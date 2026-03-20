@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public sealed class CapturedPlayerFilter : IFilter
+public sealed class CapturedPlayerFilter : IFilter, IApplicableFilter
 {
     private readonly AppDbContext _dbContext;
 
@@ -56,5 +56,10 @@ public sealed class CapturedPlayerFilter : IFilter
 
         return query.Where(a => a.NBTLookups.Any(n => n.KeyId == keyId && n.ValueId.HasValue && candidates.Contains(n.ValueId.Value))
                                || regex.IsMatch(a.ItemName));
+    }
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.Tag == "CAKE_SOUL" || context.NbtKeys.Contains("captured_player");
     }
 }

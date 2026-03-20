@@ -2,7 +2,7 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public sealed class EnchantmentFilter : IFilter
+public sealed class EnchantmentFilter : IFilter, IApplicableFilter
 {
     public string Name => "Enchantment";
     public FilterType FilterType => FilterType.EQUAL;
@@ -25,5 +25,10 @@ public sealed class EnchantmentFilter : IFilter
             return query;
 
         return query.Where(a => a.Enchantments.Any(e => e.Type == enchantType));
+    }
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.HasEnchantments || context.Tag == "ENCHANTED_BOOK";
     }
 }

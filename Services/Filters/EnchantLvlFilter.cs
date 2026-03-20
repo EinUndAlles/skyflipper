@@ -2,7 +2,7 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public sealed class EnchantLvlFilter : NumberFilterBase
+public sealed class EnchantLvlFilter : NumberFilterBase, IApplicableFilter
 {
     public override string Name => "EnchantLvl";
 
@@ -26,5 +26,10 @@ public sealed class EnchantLvlFilter : NumberFilterBase
         if (!Enum.TryParse<EnchantmentType>(raw, true, out var enchantType))
             return null;
         return enchantType;
+    }
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.HasEnchantments || context.Tag == "ENCHANTED_BOOK";
     }
 }

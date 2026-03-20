@@ -166,11 +166,12 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
     }
 
     const item = auctions.length > 0 ? auctions[0] : null;
-    // Clean the item name: remove stars, reforges, pet levels
-    const displayName = nameFilter 
-        ? `${nameFilter} Pet` 
+    const isPetPage = tag.toUpperCase() === 'PET' || tag.toUpperCase().startsWith('PET_');
+    // Clean the item name: remove stars, reforges, pet levels, and rarity words for pets
+    const displayName = nameFilter
+        ? `${nameFilter} Pet`
         : getDisplayName(item?.itemName, tag);
-    const tierColor = item ? getTierColor(item.tier) : '#FFFFFF';
+    const tierColor = isPetPage ? '#FFFFFF' : (item ? getTierColor(item.tier) : '#FFFFFF');
 
     return (
         <Container className="py-4">
@@ -193,7 +194,7 @@ export default function ItemPage({ params, filters }: ItemPageProps) {
                     }}>
                         {displayName}
                     </h2>
-                    {item && (
+                    {item && !isPetPage && (
                         <small className="text-secondary">{item.tier}</small>
                     )}
                 </div>

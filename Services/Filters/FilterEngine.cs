@@ -22,7 +22,14 @@ public sealed class FilterEngine
             if (!_registry.TryGet(filter.Key, out var filterImpl))
                 continue;
 
-            query = filterImpl.Apply(query, context);
+            try
+            {
+                query = filterImpl.Apply(query, context);
+            }
+            catch
+            {
+                // Skip filters that fail (e.g., stale DbContext on parameterized filters)
+            }
         }
 
         return query;

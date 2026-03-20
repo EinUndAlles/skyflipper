@@ -4,13 +4,14 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public sealed class PetSkinFilter : NbtStringFilter
+public sealed class PetSkinFilter : NbtStringFilter, IApplicableFilter
 {
     public PetSkinFilter(AppDbContext dbContext) : base(dbContext) { }
 
     public override string Name => "PetSkin";
-    protected override string PropName => "skin";
+    protected override string PropName => "pet_skin";
     public override FilterType FilterType => base.FilterType | FilterType.AppliedItem;
+    public override bool IsApplicable(string tag) => PetLevelFilter.IsPet(tag);
 
     public override IQueryable<Auction> Apply(IQueryable<Auction> query, FilterContext context)
     {
@@ -21,27 +22,27 @@ public sealed class PetSkinFilter : NbtStringFilter
         if (value.Equals("Any", StringComparison.OrdinalIgnoreCase))
         {
             var keyId = _dbContext.NBTKeys
-                .Where(k => k.KeyName == "skin")
+                .Where(k => k.KeyName == "pet_skin")
                 .Select(k => k.Id)
                 .FirstOrDefault();
             if (keyId <= 0)
                 return query;
-            return query.Where(a => a.Tag.StartsWith("PET_") && a.NBTLookups.Any(n => n.KeyId == keyId));
+        return query.Where(a => a.Tag.StartsWith("PET") && a.NBTLookups.Any(n => n.KeyId == keyId));
         }
 
         if (value.Equals("None", StringComparison.OrdinalIgnoreCase))
         {
             var keyId = _dbContext.NBTKeys
-                .Where(k => k.KeyName == "skin")
+                .Where(k => k.KeyName == "pet_skin")
                 .Select(k => k.Id)
                 .FirstOrDefault();
             if (keyId <= 0)
                 return query;
-            return query.Where(a => a.Tag.StartsWith("PET_") && !a.NBTLookups.Any(n => n.KeyId == keyId));
+        return query.Where(a => a.Tag.StartsWith("PET") && !a.NBTLookups.Any(n => n.KeyId == keyId));
         }
 
         var keyIdMatch = _dbContext.NBTKeys
-            .Where(k => k.KeyName == "skin")
+            .Where(k => k.KeyName == "pet_skin")
             .Select(k => k.Id)
             .FirstOrDefault();
 
@@ -60,6 +61,11 @@ public sealed class PetSkinFilter : NbtStringFilter
         if (valueId == 0)
             return query;
 
-        return query.Where(a => a.Tag.StartsWith("PET_") && a.NBTLookups.Any(n => n.KeyId == keyIdMatch && n.ValueId == valueId));
+        return query.Where(a => a.Tag.StartsWith("PET") && a.NBTLookups.Any(n => n.KeyId == keyIdMatch && n.ValueId == valueId));
+    }
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.Tag.StartsWith("PET", StringComparison.OrdinalIgnoreCase);
     }
 }

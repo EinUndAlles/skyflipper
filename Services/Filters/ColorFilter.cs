@@ -5,12 +5,13 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public class ColorFilter : NbtStringFilter
+public class ColorFilter : NbtStringFilter, IApplicableFilter
 {
     public ColorFilter(AppDbContext dbContext) : base(dbContext) { }
 
     public override string Name => "Color";
     protected override string PropName => "color";
+    public override bool IsApplicable(string tag) => CacheKeyService.IsArmor(tag) || tag.Contains("LEATHER");
 
     public override IQueryable<Auction> Apply(IQueryable<Auction> query, FilterContext context)
     {
@@ -50,5 +51,10 @@ public class ColorFilter : NbtStringFilter
             return query;
 
         return query.Where(a => a.NBTLookups.Any(n => n.KeyId == keyId && n.ValueId.HasValue && valueIds.Contains(n.ValueId.Value)));
+    }
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.NbtKeys.Contains(PropName);
     }
 }

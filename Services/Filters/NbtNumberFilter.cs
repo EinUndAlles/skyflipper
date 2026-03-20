@@ -4,7 +4,7 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public abstract class NbtNumberFilter : NumberFilterBase
+public abstract class NbtNumberFilter : NumberFilterBase, INbtFilter
 {
     private readonly string? _propName;
     protected virtual string PropName => _propName ?? throw new InvalidOperationException("PropName must be overridden or provided via constructor");
@@ -21,6 +21,8 @@ public abstract class NbtNumberFilter : NumberFilterBase
         _dbContext = dbContext;
         _propName = propName;
     }
+
+    public string NbtKey => PropName;
 
     protected override IQueryable<Auction> ApplyRanges(IQueryable<Auction> query, List<(long Min, long Max)> ranges, FilterContext context)
     {

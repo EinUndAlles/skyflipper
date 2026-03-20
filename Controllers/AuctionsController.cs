@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
+using SkyFlipperSolo.Services.Filters;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Net.Http;
@@ -337,18 +338,192 @@ public class AuctionsController : ControllerBase
     /// Get filter options for a specific item tag
     /// </summary>
     [HttpGet("filters/{tag}")]
-    public IActionResult GetFiltersByTag(string tag)
+    public async Task<IActionResult> GetFiltersByTag(string tag)
     {
-        var engine = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterEngine>();
         var registry = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterRegistry>();
+        var db = HttpContext.RequestServices.GetRequiredService<SkyFlipperSolo.Data.AppDbContext>();
+        var emptyContext = new Services.Filters.FilterContext(new Dictionary<string, string>());
 
-        var options = registry.Filters
-            .Select(filter => new FilterOptions
+        // Query which NBT keys actually exist for this tag
+        var upperTag = tag.ToUpper();
+        var isPetRoot = upperTag == "PET" || upperTag.StartsWith("PET_");
+
+        // Strict Coflnet parity for pet root: only expose the known applicable pet filters.
+        if (isPetRoot)
+        {
+            var petAllowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                Name = filter.Name,
-                Type = filter.FilterType,
-                LongType = filter.FilterType.ToString(),
-                Options = filter.OptionsGet(new Services.Filters.FilterContext(new Dictionary<string, string>())).ToArray()
+                "HighestBid",
+                "Rarity",
+                "PetLevel",
+                "Bin",
+                "Candy",
+                "PetSkin",
+                "PetItem",
+                "Clean",
+                "Seller",
+                "StartingBid",
+                "UId",
+                "EndBefore",
+                "EndAfter",
+                "ItemCreatedBefore",
+                "ItemCreatedAfter",
+                "Everything",
+                "Sold",
+                "ItemNameContains",
+                "PetExp",
+                "NoOtherValuableEnchants"
+            };
+
+            var petOptions = registry.Filters
+                .Where(f => petAllowed.Contains(f.Name))
+                .Select(filter =>
+                {
+                    string[] filterOptions;
+                    try
+                    {
+                        filterOptions = filter.OptionsGet(emptyContext).ToArray();
+                    }
+                    catch
+                    {
+                        filterOptions = Array.Empty<string>();
+                    }
+
+                    return new FilterOptions
+                    {
+                        Name = filter.Name,
+                        Type = filter.FilterType,
+                        LongType = filter.FilterType.ToString(),
+                        Options = filterOptions
+                    };
+                })
+                .OrderBy(o =>
+                {
+                    // keep order close to coflnet UX
+                    return o.Name switch
+                    {
+                        "HighestBid" => 1,
+                        "Rarity" => 2,
+                        "PetLevel" => 3,
+                        "Bin" => 4,
+                        "Candy" => 5,
+                        "PetSkin" => 6,
+                        "PetItem" => 7,
+                        "Clean" => 8,
+                        "Seller" => 9,
+                        "StartingBid" => 10,
+                        "UId" => 11,
+                        "EndBefore" => 12,
+                        "EndAfter" => 13,
+                        "ItemCreatedBefore" => 14,
+                        "ItemCreatedAfter" => 15,
+                        "Everything" => 16,
+                        "Sold" => 17,
+                        "ItemNameContains" => 18,
+                        "PetExp" => 19,
+                        "NoOtherValuableEnchants" => 20,
+                        _ => 999
+                    };
+                })
+                .ToList();
+
+            return Ok(petOptions);
+        }
+
+        var existingNbtKeys = new HashSet<string>(
+            await db.NBTLookups
+                .Where(l => l.Auction != null && l.KeyId.HasValue)
+                .Where(l => isPetRoot
+                    ? l.Auction!.Tag.StartsWith("PET_")
+                    : l.Auction!.Tag == upperTag)
+                .Join(db.NBTKeys, l => l.KeyId, k => k.Id, (l, k) => k.KeyName)
+                .Distinct()
+                .ToListAsync(),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Query which enchant types exist for this tag
+        var existingEnchants = new HashSet<string>(
+            await db.Enchantments
+                .Where(e => e.Auction != null)
+                .Where(e => isPetRoot
+                    ? e.Auction!.Tag.StartsWith("PET_")
+                    : e.Auction!.Tag == upperTag)
+                .Select(e => e.Type.ToString())
+                .Distinct()
+                .ToListAsync(),
+            StringComparer.OrdinalIgnoreCase);
+
+        var tagCategory = await db.Auctions
+            .Where(a => isPetRoot ? a.Tag.StartsWith("PET_") : a.Tag == upperTag)
+            .Select(a => a.Category)
+            .FirstOrDefaultAsync();
+
+        var applicabilityContext = new Services.Filters.FilterApplicabilityContext(
+            upperTag,
+            tagCategory,
+            existingEnchants.Count > 0,
+            existingNbtKeys);
+
+        var universalFilters = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "HighestBid",
+            "StartingBid",
+            "Rarity",
+            "Bin",
+            "Seller",
+            "UId",
+            "EndBefore",
+            "EndAfter",
+            "ItemCreatedBefore",
+            "ItemCreatedAfter",
+            "Everything",
+            "Sold",
+            "ItemNameContains",
+            "Clean"
+        };
+
+        var options = registry.FiltersFor(applicabilityContext)
+            .Where(filter =>
+            {
+                if (universalFilters.Contains(filter.Name))
+                    return true;
+
+                if (filter is Services.Filters.INbtFilter nbtFilter)
+                    return existingNbtKeys.Contains(nbtFilter.NbtKey);
+
+                if (filter is Services.Filters.EnchantmentFilter
+                    || filter is Services.Filters.SecondEnchantmentFilter
+                    || filter is Services.Filters.EnchantLvlFilter
+                    || filter is Services.Filters.SecondEnchantLvlFilter)
+                    return existingEnchants.Count > 0;
+
+                if (filter is Services.Filters.EnchantBaseFilter)
+                    return existingEnchants.Contains(filter.Name);
+
+                if (filter is Services.Filters.IApplicableFilter)
+                    return true;
+
+                return false;
+            })
+            .Select(filter =>
+            {
+                string[] filterOptions;
+                try
+                {
+                    filterOptions = filter.OptionsGet(emptyContext).ToArray();
+                }
+                catch
+                {
+                    filterOptions = Array.Empty<string>();
+                }
+
+                return new FilterOptions
+                {
+                    Name = filter.Name,
+                    Type = filter.FilterType,
+                    LongType = filter.FilterType.ToString(),
+                    Options = filterOptions
+                };
             })
             .ToList();
 

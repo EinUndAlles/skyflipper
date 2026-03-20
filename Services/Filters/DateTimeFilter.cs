@@ -2,10 +2,11 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public abstract class DateTimeFilter : IFilter
+public abstract class DateTimeFilter : IFilter, IApplicableFilter
 {
     public abstract string Name { get; }
     public virtual FilterType FilterType => FilterType.DATE;
+    public virtual bool IsApplicable(string tag) => true;
 
     public virtual IEnumerable<string> OptionsGet(FilterContext context) => Array.Empty<string>();
 
@@ -23,4 +24,6 @@ public abstract class DateTimeFilter : IFilter
     }
 
     protected abstract IQueryable<Auction> ApplyComparison(IQueryable<Auction> query, DateTime timestamp);
+
+    public virtual bool IsApplicable(FilterApplicabilityContext context) => true;
 }

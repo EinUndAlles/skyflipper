@@ -3,12 +3,17 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public sealed class WinningBidFilter : NbtNumberFilter
+public sealed class WinningBidFilter : NbtNumberFilter, IApplicableFilter
 {
     public WinningBidFilter(AppDbContext dbContext) : base(dbContext) { }
 
     public override string Name => "WinningBid";
     protected override string PropName => "winning_bid";
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.NbtKeys.Contains(PropName) || context.NbtKeys.Contains("additional_coins");
+    }
 
     protected override IQueryable<Auction> ApplyRanges(IQueryable<Auction> query, List<(long Min, long Max)> ranges, FilterContext context)
     {

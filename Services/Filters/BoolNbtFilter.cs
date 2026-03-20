@@ -3,7 +3,7 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public abstract class BoolNbtFilter : IFilter
+public abstract class BoolNbtFilter : IFilter, INbtFilter
 {
     protected abstract string PropName { get; }
     private readonly AppDbContext _dbContext;
@@ -15,6 +15,9 @@ public abstract class BoolNbtFilter : IFilter
 
     public virtual string Name => PropName;
     public virtual FilterType FilterType => FilterType.EQUAL;
+
+    public string NbtKey => PropName;
+    public virtual bool IsApplicable(string tag) => true;
 
     public virtual IEnumerable<string> OptionsGet(FilterContext context) => new[] { "yes", "no" };
 

@@ -9,4 +9,10 @@ public interface IFilter
     FilterType FilterType { get; }
     IEnumerable<string> OptionsGet(FilterContext context);
     IQueryable<Auction> Apply(IQueryable<Auction> query, FilterContext context);
+
+    /// <summary>
+    /// Whether this filter is applicable for items with the given tag.
+    /// Default: true (universal). Override for tag-specific filters.
+    /// </summary>
+    bool IsApplicable(string tag) => true;
 }

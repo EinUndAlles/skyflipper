@@ -4,13 +4,14 @@ using SkyFlipperSolo.Models;
 
 namespace SkyFlipperSolo.Services.Filters;
 
-public sealed class PetItemFilter : NbtStringFilter
+public sealed class PetItemFilter : NbtStringFilter, IApplicableFilter
 {
     public PetItemFilter(AppDbContext dbContext) : base(dbContext) { }
 
     public override string Name => "PetItem";
-    protected override string PropName => "heldItem";
+    protected override string PropName => "pet_held_item";
     public override FilterType FilterType => base.FilterType | FilterType.AppliedItem;
+    public override bool IsApplicable(string tag) => PetLevelFilter.IsPet(tag);
 
     public override IEnumerable<string> OptionsGet(FilterContext context)
     {
@@ -27,7 +28,7 @@ public sealed class PetItemFilter : NbtStringFilter
         if (value.Equals("NOT_TIER_BOOST", StringComparison.OrdinalIgnoreCase))
         {
             var keyId = _dbContext.NBTKeys
-                .Where(k => k.KeyName == "heldItem")
+                .Where(k => k.KeyName == "pet_held_item")
                 .Select(k => k.Id)
                 .FirstOrDefault();
 
@@ -42,9 +43,14 @@ public sealed class PetItemFilter : NbtStringFilter
             if (tierBoostId == 0)
                 return query;
 
-            return query.Where(a => !a.NBTLookups.Any(n => n.KeyId == keyId && n.ValueId == tierBoostId));
+            return query.Where(a => a.Tag.StartsWith("PET") && !a.NBTLookups.Any(n => n.KeyId == keyId && n.ValueId == tierBoostId));
         }
 
         return base.Apply(query, context);
+    }
+
+    public bool IsApplicable(FilterApplicabilityContext context)
+    {
+        return context.Tag.StartsWith("PET", StringComparison.OrdinalIgnoreCase);
     }
 }
