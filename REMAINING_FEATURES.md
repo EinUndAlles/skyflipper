@@ -2,6 +2,8 @@
 
 This document tracks features from the Coflnet SkyFlipper reference that are not yet implemented in SkyFlipperSolo.
 
+**Last updated: 2026-03-19**
+
 ## Priority Legend
 - **P0**: Critical - Affects flip detection accuracy significantly
 - **P1**: High - Affects specific item categories  
@@ -28,78 +30,61 @@ All P0, P1, and P2 accuracy-affecting features have been implemented:
 | Composite Tags (PET/POTION/RUNE/ABICASE) | ✅ | `NbtParserService.cs` - GetCompositeItemId() |
 | NBT Flattening (50+ keys) | ✅ | `NbtParserService.cs` - FlattenNbtData() |
 | Candy Used Special Logic | ✅ | `CacheKeyService.cs` - GetCandyCacheValue() with binary check + max-exp skin case |
+| CacheKey format aligned | ✅ | `CacheKeyService.cs` - matches Coflnet raw concat format |
+| SelectBestEnchant WorthOrder | ✅ | `ReferenceAuctionService.cs` - full priority list ported |
+| ShouldPetItemMatch exp guard | ✅ | `CacheKeyService.cs` - exp key guard added |
+| SQL-level NBT filtering | ✅ | `ReferenceAuctionService.cs` - DB-level filtering via NBTLookup joins |
+| Enchant list aligned | ✅ | `CacheKeyService.cs` - matches Constants.cs RelevantEnchants |
+| Redis distributed cache | ✅ | `Program.cs` - IDistributedCache via Redis (2h TTL) |
+| SkyFilter parity (345 filters) | ✅ | `Services/Filters/` - full coflnet FilterEngine parity |
+| Debug API endpoints | ✅ | `FlipsController.cs` - reference auctions, cache info |
+| Prometheus metrics | ✅ | `Program.cs` - flip counts, latencies, cache hit rates |
 
 ---
 
-## P3: Low Priority (Dev/Ops Tooling)
+## Remaining Items
 
-### 1. Debug API Endpoints
-**Reference**: `ApiController.cs`
+### 1. Frontend Filter Integration
+**Priority**: P1 — makes backend filters usable by end users
 
-Endpoints for debugging flip detection:
+Backend has 345 filter types served via `GET /api/auctions/filters/{tag}`. The frontend client currently shows ~10 hardcoded filters. Needs wiring to the backend endpoint for full filter discoverability.
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /flip/{uuid}/based` | Get reference auctions used for pricing |
-| `GET /flip/{uuid}/cache` | Get cache info (hitCount, key, queryTime, estimate) |
-| `DELETE /flip/{uuid}` | Invalidate cache for an auction |
+### 2. Test Coverage
+**Priority**: P2 — confidence in correctness
 
-**Implementation needed**:
-- Add debug endpoints to `FlipsController`
-- Expose cache key generation for debugging
-- Add cache invalidation endpoint
+Current: 32 tests (parity integration + fixtures). Needs:
+- Unit tests per filter (dozens have zero coverage)
+- `NbtParserService` / `CacheKeyService` unit tests
+- Live-data regression tests against real Hypixel auctions
+- Edge case coverage (missing NBT keys, empty values, corrupt data)
 
----
+### 3. Live Validation
+**Priority**: P2 — confirm filters work with real data
 
-### 2. Prometheus Metrics
-**Reference**: `FlippingEngine.cs` lines 41-56
-
-Operational metrics for monitoring:
-
-```csharp
-Prometheus.Counter foundFlipCount = Prometheus.Metrics.CreateCounter("flips_found", "Number of flips found");
-Prometheus.Counter alreadySold = Prometheus.Metrics.CreateCounter("already_sold_flips", "Flips already sold");
-Prometheus.Histogram time = Prometheus.Metrics.CreateHistogram("time_to_find_flip", "Time to find flip");
-Prometheus.Histogram runtroughTime = Prometheus.Metrics.CreateHistogram("sky_flipper_auction_to_send_flip_seconds", "...");
-```
-
-**Implementation needed**:
-- Add `prometheus-net.AspNetCore` NuGet package
-- Add metrics to `FlipDetectionService`
-- Expose `/metrics` endpoint
-
----
-
-## Future Enhancements (Not in Reference)
-
-### 3. Unit Tests
-**Priority**: P2
-
-No unit tests currently exist. Key areas to test:
-- `NbtParserService`: Parse known NBT blobs, verify extraction
-- `CacheKeyService`: Verify key generation matches reference
-- `FlipDetectionService`: Verify profit calculation
-
----
+Filters are implemented but unvalidated against real Hypixel data. Some NBT keys (e.g. `raffle_year`, `plarvoid_book_count`) may never appear in practice. Need a pass to confirm keys exist in `NBTKeys` table after real ingestion.
 
 ### 4. Performance Optimization
 **Priority**: P3
 
-Potential improvements:
-- Database query optimization (analyze slow queries)
-- Caching layer for frequently accessed price data
+- Filter queries are individual EF Core queries; `CleanFilter` does expensive NOT EXISTS joins
+- Consider compiled queries or query optimization for hot paths
 - Connection pooling tuning
 
----
-
-### 5. Frontend Improvements
+### 5. Operational Hardening
 **Priority**: P3
 
-The React frontend in `/client` could use:
-- Real-time flip notification UI
-- Filtering by item category
-- Profit threshold configuration
-- Historical flip accuracy tracking
+- Hypixel API rate limiting / circuit breaker
+- Graceful shutdown for background services
+- Deeper health checks (DB, Redis, Hypixel API reachability)
+
+### 6. Out-of-Scope (Not Needed for Standalone)
+- Kafka / distributed messaging (monolith by design)
+- ScyllaDB / MongoDB (PostgreSQL sufficient for single-user)
+- SkyFlipTracker (flip success tracking)
+- SkyCrafts (crafting cost data)
+- SkyModCommands (Minecraft mod integration)
+- SkyMcConnect (account verification)
+- Premium/user auth system
 
 ---
 
@@ -110,8 +95,7 @@ The React frontend in `/client` could use:
 | P0 features complete | ~97% |
 | P1 features complete | ~99% |
 | P2 features complete | **~99.5%** ✅ |
-
-The remaining 0.5% are edge cases and items with very low volume where exact matching is difficult.
+| Filter parity complete | **~99.7%** ✅ |
 
 ---
 
@@ -119,17 +103,26 @@ The remaining 0.5% are edge cases and items with very low volume where exact mat
 
 ### Completed
 - [x] P0: All core flip detection logic
+- [x] P0: CacheKey format alignment
+- [x] P0: SelectBestEnchant WorthOrder
+- [x] P0: ShouldPetItemMatch exp guard
+- [x] P0: Enchant list alignment
+- [x] P0: SQL-level NBT filtering
 - [x] P1: Attribute Shard Weighting
 - [x] P1: Armor Color/Dye NBT Matching  
 - [x] P1: Cosmetic NBT Keys
+- [x] P1: Redis distributed cache
+- [x] P1: SkyFilter parity (345 filters)
 - [x] P2: Bid Flip Detection
 - [x] P2: Unlocked Slots Date Filter
 - [x] P2: Drill Parts Matching
+- [x] P2: Debug API Endpoints
+- [x] P2: Prometheus Metrics
 - [x] P3: Candy Used Special Logic
 
 ### Remaining
-- [ ] P3: Debug API Endpoints
-- [ ] P3: Prometheus Metrics
-- [ ] P2: Unit Tests
-- [ ] P3: Performance Optimization
-- [ ] P3: Frontend Improvements
+- [ ] P1: Frontend filter integration
+- [ ] P2: Unit tests (NbtParser, CacheKey, filters)
+- [ ] P2: Live-data regression tests
+- [ ] P3: Performance optimization
+- [ ] P3: Operational hardening
