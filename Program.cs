@@ -37,10 +37,24 @@ builder.Services.AddCors(options =>
 // Add SignalR for real-time WebSocket communication
 builder.Services.AddSignalR();
 builder.Services.AddMemoryCache(); // Required for ComponentValueService cashing
-builder.Services.AddStackExchangeRedisCache(options =>
+
+// Try Redis, fall back to in-memory distributed cache
+var redisConnection = builder.Configuration.GetValue<string>("Redis:ConnectionString") ?? "localhost:6379";
+try
 {
-    options.Configuration = builder.Configuration.GetValue<string>("Redis:ConnectionString") ?? "localhost:6379";
-});
+    var mux = StackExchange.Redis.ConnectionMultiplexer.Connect(redisConnection);
+    mux.Dispose(); // just a connectivity test
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnection;
+    });
+    Console.WriteLine($"[Cache] Using Redis at {redisConnection}");
+}
+catch
+{
+    builder.Services.AddDistributedMemoryCache();
+    Console.WriteLine("[Cache] Redis unavailable, using in-memory distributed cache");
+}
 
 // Add PostgreSQL DbContext with retry on transient failures (including deadlocks)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")

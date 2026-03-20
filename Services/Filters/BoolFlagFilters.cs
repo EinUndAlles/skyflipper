@@ -20,6 +20,7 @@ public abstract class BoolNbtKeyFilter : IFilter
 
     public virtual string Name => PropName;
     public virtual FilterType FilterType => FilterType.EQUAL;
+    public virtual bool IsApplicable(string tag) => true;
     public virtual IEnumerable<string> OptionsGet(FilterContext context) => new[] { "yes", "no" };
 
     public virtual IQueryable<Auction> Apply(IQueryable<Auction> query, FilterContext context)

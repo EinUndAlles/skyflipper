@@ -37,4 +37,13 @@ Filter parity: implementing SkyFilter filters to match coflnet's filter surface 
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
-- Full coflnet filter parity achieved. Focus shifts to testing with live data and frontend integration.
+- Full coflnet filter parity achieved. Focus shifts to filter applicability UX + settings controls.
+- Implement coflnet-style filter input controls (numeric range inputs, datetime pickers, enum/text modes).
+
+## Latest Update
+- Added generic filter applicability infrastructure:
+  - `IApplicableFilter`, `INbtFilter`, `FilterApplicabilityContext`
+  - `FilterRegistry.FiltersFor(context)`
+  - `/api/auctions/filters/{tag}` now evaluates tag context (category, nbt keys, enchant presence)
+- PET routes (`PET`, `PET_*`) now share strict coflnet pet filter subset.
+- Pet page title presentation aligned to expected UX (white title, no tier subtitle in header).

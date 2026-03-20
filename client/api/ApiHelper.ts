@@ -4,6 +4,37 @@ import { ItemPrice, DateRange, ItemFilter as PriceItemFilter, PriceHistoryRespon
 import { ItemFilter } from '../types/filters';
 import { FlipNotification } from '../types/flip';
 
+const DATE_FILTER_KEYS = new Set([
+    'EndBefore',
+    'EndAfter',
+    'ItemCreatedBefore',
+    'ItemCreatedAfter'
+]);
+
+function normalizeFilterParams(itemFilter?: ItemFilter): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (!itemFilter || Object.keys(itemFilter).length === 0) {
+        return params;
+    }
+
+    Object.entries(itemFilter).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (DATE_FILTER_KEYS.has(key)) {
+            // UI stores datetime-local; backend expects unix seconds.
+            const dt = new Date(value);
+            if (!Number.isNaN(dt.getTime())) {
+                params[key] = String(Math.floor(dt.getTime() / 1000));
+            }
+            return;
+        }
+
+        params[key] = value;
+    });
+
+    return params;
+}
+
 const API_BASE_URL = 'http://localhost:5135/api';
 
 // Image URL construction similar to hypixel-react
@@ -59,11 +90,7 @@ export const api = {
         if (filter) params.filter = filter;
 
         // Pass all item filter keys as query params for the generic filter engine
-        if (itemFilter && Object.keys(itemFilter).length > 0) {
-            Object.entries(itemFilter).forEach(([key, value]) => {
-                if (value) params[key] = value;
-            });
-        }
+        Object.assign(params, normalizeFilterParams(itemFilter));
 
         const response = await axios.get<Auction[]>(`${API_BASE_URL}/auctions/by-tag/${tag}`, {
             params
@@ -119,12 +146,7 @@ export const api = {
         fetchSpan: DateRange = 'week',
         itemFilter?: ItemFilter
     ): Promise<ItemPrice[]> => {
-        const params: Record<string, string> = {};
-        if (itemFilter && Object.keys(itemFilter).length > 0) {
-            Object.entries(itemFilter).forEach(([key, value]) => {
-                if (value) params[key] = value;
-            });
-        }
+        const params = normalizeFilterParams(itemFilter);
         
         const response = await axios.get<PriceHistoryResponse>(
             `${API_BASE_URL}/auctions/item/price/${itemTag}/history/${fetchSpan}`,
@@ -155,12 +177,7 @@ export const api = {
         med: number;
         volume: number;
     }> => {
-        const params: Record<string, string> = {};
-        if (itemFilter && Object.keys(itemFilter).length > 0) {
-            Object.entries(itemFilter).forEach(([key, value]) => {
-                if (value) params[key] = value;
-            });
-        }
+        const params = normalizeFilterParams(itemFilter);
         
         const response = await axios.get(`${API_BASE_URL}/auctions/item/price/${itemTag}`, { params });
         return response.data;
@@ -173,12 +190,7 @@ export const api = {
         uuid: string | null;
         itemName?: string;
     }> => {
-        const params: Record<string, string> = {};
-        if (itemFilter && Object.keys(itemFilter).length > 0) {
-            Object.entries(itemFilter).forEach(([key, value]) => {
-                if (value) params[key] = value;
-            });
-        }
+        const params = normalizeFilterParams(itemFilter);
         
         const response = await axios.get(`${API_BASE_URL}/auctions/item/price/${itemTag}/bin`, { params });
         return response.data;
@@ -198,12 +210,7 @@ export const api = {
         pageSize: number;
         hasMore: boolean;
     }> => {
-        const params: Record<string, any> = { sort, page, pageSize };
-        if (itemFilter && Object.keys(itemFilter).length > 0) {
-            Object.entries(itemFilter).forEach(([key, value]) => {
-                if (value) params[key] = value;
-            });
-        }
+        const params: Record<string, any> = { sort, page, pageSize, ...normalizeFilterParams(itemFilter) };
         
         const response = await axios.get(`${API_BASE_URL}/auctions/item/${itemTag}/auctions/active`, { params });
         return response.data;
@@ -222,12 +229,7 @@ export const api = {
         pageSize: number;
         hasMore: boolean;
     }> => {
-        const params: Record<string, any> = { page, pageSize };
-        if (itemFilter && Object.keys(itemFilter).length > 0) {
-            Object.entries(itemFilter).forEach(([key, value]) => {
-                if (value) params[key] = value;
-            });
-        }
+        const params: Record<string, any> = { page, pageSize, ...normalizeFilterParams(itemFilter) };
         
         const response = await axios.get(`${API_BASE_URL}/auctions/item/${itemTag}/auctions/sold`, { params });
         return response.data;

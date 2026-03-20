@@ -195,16 +195,28 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                                 checked={itemFilter[filterName] === 'true'}
                                                 onChange={(e) => handleFilterChange(filterName, e.target.checked ? 'true' : '')}
                                             />
-                                        ) : FilterTypeHelper.HasFlag(filterOption.type, FilterType.NUMERICAL) ? (
+                                        ) : FilterTypeHelper.HasFlag(filterOption.type, FilterType.DATE) ? (
                                             <Form.Control
-                                                type="text"
+                                                type="datetime-local"
                                                 size="sm"
-                                                style={{ width: '100px' }}
+                                                style={{ width: '190px' }}
                                                 className="bg-dark text-light border-secondary"
                                                 value={itemFilter[filterName] || ''}
                                                 onChange={(e) => handleFilterChange(filterName, e.target.value)}
-                                                placeholder="0-10 or >5"
                                             />
+                                        ) : FilterTypeHelper.HasFlag(filterOption.type, FilterType.NUMERICAL) ? (
+                                            <div className="d-flex gap-1 align-items-center">
+                                                <Form.Control
+                                                    type="text"
+                                                    size="sm"
+                                                    style={{ width: '130px' }}
+                                                    className="bg-dark text-light border-secondary"
+                                                    value={itemFilter[filterName] || ''}
+                                                    onChange={(e) => handleFilterChange(filterName, e.target.value)}
+                                                    placeholder="5, 5-10, >5"
+                                                />
+                                                <span className="text-muted" style={{ fontSize: '0.75rem' }}>#</span>
+                                            </div>
                                         ) : (
                                             <Form.Select
                                                 size="sm"

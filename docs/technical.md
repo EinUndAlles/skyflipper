@@ -23,9 +23,14 @@
 - `NbtStringFilter` base: exact/any/none matching via `NBTLookups.ValueId` + `NBTValues`.
 - `BoolNbtFilter` base: presence/absence check on `NBTLookups.KeyId`.
 - `NumberFilterBase` base: abstract range filtering with `RangeParser`.
-- ~109 of ~175 coflnet filters implemented (see `tasks/tasks_plan.md` for batch tracker).
+- Full coflnet registration parity implemented (~345 filter registrations).
 - All filters registered in `FilterBootstrapper.RegisterCoreFilters()`.
-- DI: scoped for filters using AppDbContext, singleton otherwise.
+- Applicability infrastructure:
+  - `IApplicableFilter` for context-aware applicability checks.
+  - `INbtFilter` to expose required NBT key.
+  - `FilterApplicabilityContext` (tag, category, enchant presence, NBT keys).
+  - `FilterRegistry.FiltersFor(context)` for per-tag filter selection.
+- `/api/auctions/filters/{tag}` now resolves filter list by tag context rather than returning all filters.
 
 ## NBT Storage
 - Legacy `NBTLookups.Key` and `NBTLookups.ValueString` removed.
