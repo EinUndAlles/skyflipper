@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NUnit.Framework;
 using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Models;
@@ -234,6 +236,7 @@ public class ReferenceParityTests
         services.AddDbContext<AppDbContext>(options =>
             options.UseInMemoryDatabase(Guid.NewGuid().ToString("N")));
         services.AddMemoryCache();
+        services.AddDistributedMemoryCache();
         services.AddSingleton<NbtLookupResolver>();
         services.AddSingleton<CacheKeyService>();
         services.AddSingleton<ComponentValueService>(sp =>
@@ -246,6 +249,9 @@ public class ReferenceParityTests
         var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var referenceCacheService = new ReferenceCacheService(
+            new MemoryDistributedCache(new OptionsWrapper<MemoryDistributedCacheOptions>(new MemoryDistributedCacheOptions())),
+            new StaticScopeFactory(dbContext));
 
         var now = DateTime.UtcNow;
         var mainAuction = BuildAuction(fixture.Auction);
@@ -326,10 +332,10 @@ public class ReferenceParityTests
 
         var referenceService = new ReferenceAuctionService(
             new StaticScopeFactory(dbContext),
-            scope.ServiceProvider.GetRequiredService<IMemoryCache>(),
             scope.ServiceProvider.GetRequiredService<CacheKeyService>(),
             scope.ServiceProvider.GetRequiredService<ComponentValueService>(),
             scope.ServiceProvider.GetRequiredService<NbtLookupResolver>(),
+            referenceCacheService,
             NullLogger<ReferenceAuctionService>.Instance);
 
         var preQuery = await dbContext.Auctions
@@ -488,6 +494,7 @@ public class ReferenceParityTests
         services.AddDbContext<AppDbContext>(options =>
             options.UseInMemoryDatabase(Guid.NewGuid().ToString("N")));
         services.AddMemoryCache();
+        services.AddDistributedMemoryCache();
         services.AddSingleton<NbtLookupResolver>();
         services.AddSingleton<CacheKeyService>();
         services.AddSingleton<ComponentValueService>(sp =>
@@ -496,6 +503,10 @@ public class ReferenceParityTests
                 sp.GetRequiredService<IMemoryCache>(),
                 NullLogger<ComponentValueService>.Instance));
         services.AddLogging();
+        services.AddSingleton<ReferenceCacheService>(sp =>
+            new ReferenceCacheService(
+                sp.GetRequiredService<IDistributedCache>(),
+                sp.GetRequiredService<IServiceScopeFactory>()));
 
         var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
@@ -582,10 +593,10 @@ public class ReferenceParityTests
 
         var referenceService = new ReferenceAuctionService(
             new StaticScopeFactory(dbContext),
-            scope.ServiceProvider.GetRequiredService<IMemoryCache>(),
             scope.ServiceProvider.GetRequiredService<CacheKeyService>(),
             scope.ServiceProvider.GetRequiredService<ComponentValueService>(),
             scope.ServiceProvider.GetRequiredService<NbtLookupResolver>(),
+            scope.ServiceProvider.GetRequiredService<ReferenceCacheService>(),
             NullLogger<ReferenceAuctionService>.Instance);
 
         var preQueryFull = await dbContext.Auctions
@@ -1349,10 +1360,10 @@ public class ReferenceParityTests
 
         return new ReferenceAuctionService(
             scopeFactory ?? new EmptyScopeFactory(),
-            memoryCache,
             CreateCacheKeyService(),
             componentValueService,
             new NbtLookupResolver(scopeFactory ?? new EmptyScopeFactory()),
+            new ReferenceCacheService(new MemoryDistributedCache(new OptionsWrapper<MemoryDistributedCacheOptions>(new MemoryDistributedCacheOptions())), scopeFactory ?? new EmptyScopeFactory()),
             NullLogger<ReferenceAuctionService>.Instance);
     }
 

@@ -1,7 +1,7 @@
 # Active Context
 
 ## Focus
-Close remaining P1/P3 parity gaps (AveragePrice CacheKey length, debug endpoints, Prometheus, regression fixtures).
+Next parity work: advanced filters (SkyFilter parity) and runtime hardening.
 
 ## What Exists
 - Coflnet-style reference-auction engine implemented.
@@ -17,4 +17,5 @@ Close remaining P1/P3 parity gaps (AveragePrice CacheKey length, debug endpoints
 - Real-data regression fixtures are limited; capturing live mismatches would improve confidence.
 
 ## Next Steps
+- Implement SkyFilter parity (advanced filtering types).
 - Expand parity tests with live-data fixtures.

@@ -43,25 +43,25 @@ public class ReferenceAuctionService
     };
 
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IMemoryCache _memoryCache;
     private readonly CacheKeyService _cacheKeyService;
     private readonly ComponentValueService _componentValueService;
     private readonly NbtLookupResolver _nbtLookupResolver;
+    private readonly ReferenceCacheService _referenceCacheService;
     private readonly ILogger<ReferenceAuctionService> _logger;
 
     public ReferenceAuctionService(
         IServiceScopeFactory scopeFactory,
-        IMemoryCache memoryCache,
         CacheKeyService cacheKeyService,
         ComponentValueService componentValueService,
         NbtLookupResolver nbtLookupResolver,
+        ReferenceCacheService referenceCacheService,
         ILogger<ReferenceAuctionService> logger)
     {
         _scopeFactory = scopeFactory;
-        _memoryCache = memoryCache;
         _cacheKeyService = cacheKeyService;
         _componentValueService = componentValueService;
         _nbtLookupResolver = nbtLookupResolver;
+        _referenceCacheService = referenceCacheService;
         _logger = logger;
     }
 
@@ -165,11 +165,12 @@ public class ReferenceAuctionService
     public async Task<RelevantReferenceResult> GetRelevantAuctionsCacheAsync(Auction auction, CancellationToken stoppingToken)
     {
         var cacheKey = _cacheKeyService.GeneratePriceCacheKey(auction);
-        if (_memoryCache.TryGetValue<RelevantReferenceResult>(cacheKey, out var cached))
-            return cached!;
+        var cached = await _referenceCacheService.GetAsync(cacheKey, stoppingToken);
+        if (cached != null)
+            return cached;
 
         var fetched = await GetRelevantAuctionsAsync(auction, stoppingToken);
-        _memoryCache.Set(cacheKey, fetched, ReferenceCacheDuration);
+        await _referenceCacheService.SetAsync(cacheKey, fetched, stoppingToken);
         return fetched;
     }
 

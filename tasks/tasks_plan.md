@@ -18,6 +18,7 @@
 9. Replace NBTLookup legacy Key/ValueString with KeyId/ValueId (done).
 10. Extract NBT SQL filtering to helper (done).
 11. Centralize NBT key/value ID resolver (done).
+12. Replace IMemoryCache with Redis distributed cache for references (done).
 8. Optional: frontend polish / no-SSR wrapper for `/flips` if hydration warnings persist.
 
 ## Completed Highlights

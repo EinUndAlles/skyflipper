@@ -14,6 +14,9 @@
 - Frontend dev server: `http://localhost:3000`
 - Metrics: `http://localhost:5135/metrics`
 
+## Cache
+- Reference cache uses Redis distributed cache (2h TTL).
+
 ## NBT Storage
 - Legacy `NBTLookups.Key` and `NBTLookups.ValueString` removed.
 - NBT lookups now use `KeyId` and `ValueId` exclusively.

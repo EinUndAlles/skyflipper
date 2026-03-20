@@ -47,9 +47,9 @@ alwaysApply: false
 **Fix:** Create migration to widen to `text`.
 
 ### 7. IMemoryCache Reference Sets (P1)
-**Status:** Expected limitation.
-**Context:** Reference sets lost on restart; not shared across instances. Coflnet uses Redis with 2h TTL.
-**Fix:** Consider adding Redis-backed IDistributedCache.
+**Status:** Resolved — Redis-backed distributed cache added.
+**Context:** Reference sets lost on restart; not shared across instances.
+**Fix:** `ReferenceCacheService` stores reference IDs in Redis with 2h TTL.
 
 ### 13. AveragePrice.CacheKey Length (P1)
 **Status:** Resolved — widened to `varchar(600)`.

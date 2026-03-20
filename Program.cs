@@ -6,6 +6,7 @@ using SkyFlipperSolo.Data;
 using SkyFlipperSolo.Hubs;
 using SkyFlipperSolo.Models;
 using SkyFlipperSolo.Services;
+using Microsoft.Extensions.Caching.Distributed;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,6 +36,10 @@ builder.Services.AddCors(options =>
 // Add SignalR for real-time WebSocket communication
 builder.Services.AddSignalR();
 builder.Services.AddMemoryCache(); // Required for ComponentValueService cashing
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetValue<string>("Redis:ConnectionString") ?? "localhost:6379";
+});
 
 // Add PostgreSQL DbContext with retry on transient failures (including deadlocks)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -71,6 +76,7 @@ builder.Services.AddSingleton<NBTValueService>(); // NBT value deduplication ser
 builder.Services.AddSingleton<NbtLookupResolver>(); // NBT key/value ID resolver
 builder.Services.AddSingleton<ItemDetailsService>(); // Item metadata tracking
 builder.Services.AddSingleton<CacheKeyService>(); // NBT-aware cache key generation
+builder.Services.AddSingleton<ReferenceCacheService>(); // Redis-backed reference cache
 builder.Services.AddSingleton<ReferenceAuctionService>(); // Coflnet-style reference auction matching
 builder.Services.AddSingleton<PropertiesSelectorService>(); // Item property formatting
 builder.Services.AddSingleton<ComponentValueService>(); // Component valuation service
