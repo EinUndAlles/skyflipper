@@ -33,6 +33,25 @@ function categorizeFilter(name: string): string {
 
 const CATEGORY_ORDER = ['Core', 'Enchants', 'Pets & Skins', 'Gems', 'Attributes', 'Kills', 'Counters', 'Stats', 'Colors', 'Runes', 'Drills', 'Flags', 'Item', 'Misc', 'Pricing'];
 
+function normalizeFilterType(type: FilterOptions['type'], longType?: string): FilterType {
+    if (typeof type === 'number') return type as FilterType;
+
+    // Backend may serialize enums as strings, use longType/type name fallback.
+    const value = (longType || type || '').toString();
+    let flags = 0;
+    if (value.includes('EQUAL')) flags |= FilterType.EQUAL;
+    if (value.includes('HIGHER')) flags |= FilterType.HIGHER;
+    if (value.includes('LOWER')) flags |= FilterType.LOWER;
+    if (value.includes('DATE')) flags |= FilterType.DATE;
+    if (value.includes('NUMERICAL')) flags |= FilterType.NUMERICAL;
+    if (value.includes('RANGE')) flags |= FilterType.RANGE;
+    if (value.includes('TEXT')) flags |= FilterType.TEXT;
+    if (value.includes('SIMPLE')) flags |= FilterType.SIMPLE;
+    if (value.includes('BOOLEAN')) flags |= FilterType.BOOLEAN;
+    if (value.includes('AppliedItem')) flags |= FilterType.AppliedItem;
+    return flags as FilterType;
+}
+
 export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter, ignoreURL }: Props) {
     const [itemFilter, setItemFilter] = useState<ItemFilter>(defaultFilter || {});
     const [expanded, setExpanded] = useState(false);
@@ -189,13 +208,21 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                     <div key={filterName} className="d-flex align-items-center gap-1 bg-secondary rounded p-2">
                                         <span className="small text-light me-1" style={{ whiteSpace: 'nowrap' }}>{filterName.replace(/_/g, ' ')}:</span>
 
-                                        {FilterTypeHelper.HasFlag(filterOption.type, FilterType.BOOLEAN) ? (
+                                        {(() => {
+                                            const ft = normalizeFilterType(filterOption.type, filterOption.longType);
+
+                                            if (FilterTypeHelper.HasFlag(ft, FilterType.BOOLEAN)) {
+                                                return (
                                             <Form.Check
                                                 type="checkbox"
                                                 checked={itemFilter[filterName] === 'true'}
                                                 onChange={(e) => handleFilterChange(filterName, e.target.checked ? 'true' : '')}
                                             />
-                                        ) : FilterTypeHelper.HasFlag(filterOption.type, FilterType.DATE) ? (
+                                                );
+                                            }
+
+                                            if (FilterTypeHelper.HasFlag(ft, FilterType.DATE)) {
+                                                return (
                                             <Form.Control
                                                 type="datetime-local"
                                                 size="sm"
@@ -204,7 +231,11 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                                 value={itemFilter[filterName] || ''}
                                                 onChange={(e) => handleFilterChange(filterName, e.target.value)}
                                             />
-                                        ) : FilterTypeHelper.HasFlag(filterOption.type, FilterType.NUMERICAL) ? (
+                                                );
+                                            }
+
+                                            if (FilterTypeHelper.HasFlag(ft, FilterType.NUMERICAL)) {
+                                                return (
                                             <div className="d-flex gap-1 align-items-center">
                                                 <Form.Control
                                                     type="text"
@@ -217,7 +248,10 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                                 />
                                                 <span className="text-muted" style={{ fontSize: '0.75rem' }}>#</span>
                                             </div>
-                                        ) : (
+                                                );
+                                            }
+
+                                            return (
                                             <Form.Select
                                                 size="sm"
                                                 style={{ width: '150px' }}
@@ -232,7 +266,8 @@ export default function ItemFilterPanel({ onFilterChange, filters, defaultFilter
                                                     </option>
                                                 ))}
                                             </Form.Select>
-                                        )}
+                                            );
+                                        })()}
 
                                         <Button
                                             variant="outline-danger"

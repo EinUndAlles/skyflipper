@@ -21,7 +21,8 @@ export class FilterTypeHelper {
 
 export interface FilterOptions {
     name: string;
-    type: FilterType;
+    type: FilterType | string;
+    longType?: string;
     options: string[];
     description?: string;
 }
