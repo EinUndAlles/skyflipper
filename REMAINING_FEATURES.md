@@ -52,11 +52,16 @@ Backend has 345 filter types served via `GET /api/auctions/filters/{tag}`. The f
 ### 2. Test Coverage
 **Priority**: P2 — confidence in correctness
 
-Current: 32 tests (parity integration + fixtures). Needs:
-- Unit tests per filter (dozens have zero coverage)
-- `NbtParserService` / `CacheKeyService` unit tests
-- Live-data regression tests against real Hypixel auctions
-- Edge case coverage (missing NBT keys, empty values, corrupt data)
+Current: 165 tests (parity integration + fixtures + unit tests). Coverage includes:
+- `RangeParserTests` — 16 tests for range parsing (exact, range, greater/less than, any/none, pipes, underscores, invalid input)
+- `FilterUnitTests` — 111 tests covering bootstrapping (300+ filters register), names unique, type flags, options, Apply doesn't throw, gem/attribute/enchant/rune/skin/drill filter existence, specific filter behavior (Sold, Everything, ItemNameContains, ItemTag, ItemId, Computed pass-through)
+- `CacheKeyServiceTests` — 18 tests covering ExtractRelevantEnchants, ShouldPetItemMatch (coflnet cases + exp guard), IsPet, IsArmor, DoesRecombMatter, GeneratePriceCacheKey (tag, pet level normalization, tier separation)
+- `ReferenceParityTests` — 32 tests for end-to-end parity with fixtures
+
+Needs:
+- More CacheKeyService edge cases (composite tags, range matching)
+- NbtParserService unit tests (requires NBT test data)
+- FlipDetectionService unit tests
 
 ### 3. Live Validation
 **Priority**: P2 — confirm filters work with real data
@@ -119,10 +124,10 @@ Filters are implemented but unvalidated against real Hypixel data. Some NBT keys
 - [x] P2: Debug API Endpoints
 - [x] P2: Prometheus Metrics
 - [x] P3: Candy Used Special Logic
+- [x] P2: Unit Tests (165 tests: RangeParser, filters, CacheKeyService, parity)
 
 ### Remaining
 - [ ] P1: Frontend filter integration
-- [ ] P2: Unit tests (NbtParser, CacheKey, filters)
 - [ ] P2: Live-data regression tests
 - [ ] P3: Performance optimization
 - [ ] P3: Operational hardening
