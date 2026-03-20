@@ -219,24 +219,28 @@ public class AuctionsController : ControllerBase
         }
         
         // --- Generic filter engine (345+ registered filters) ---
-        // Apply any query params that match registered filter names
+        // Apply only filters relevant for this tag context, same logic used by /filters/{tag}.
         var filterRegistry = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterRegistry>();
         var filterContext = new Services.Filters.FilterContext(
             Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString()));
-        
-        foreach (var regFilter in filterRegistry.Filters)
+        var applicabilityContext = await BuildFilterApplicabilityContextAsync(upperTag);
+
+        foreach (var regFilter in filterRegistry.FiltersFor(applicabilityContext))
         {
+            if (!ShouldExposeFilterForContext(regFilter, applicabilityContext))
+                continue;
+
             var value = filterContext.Get(regFilter.Name);
-            if (!string.IsNullOrEmpty(value))
+            if (string.IsNullOrEmpty(value))
+                continue;
+
+            try
             {
-                try
-                {
-                    query = regFilter.Apply(query, filterContext);
-                }
-                catch
-                {
-                    // Skip filters that fail to apply (e.g., missing NBT keys)
-                }
+                query = regFilter.Apply(query, filterContext);
+            }
+            catch
+            {
+                // Skip filters that fail to apply (e.g., non-translatable expressions)
             }
         }
         
@@ -341,170 +345,12 @@ public class AuctionsController : ControllerBase
     public async Task<IActionResult> GetFiltersByTag(string tag)
     {
         var registry = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterRegistry>();
-        var db = HttpContext.RequestServices.GetRequiredService<SkyFlipperSolo.Data.AppDbContext>();
         var emptyContext = new Services.Filters.FilterContext(new Dictionary<string, string>());
-
-        // Query which NBT keys actually exist for this tag
         var upperTag = tag.ToUpper();
-        var isPetRoot = upperTag == "PET" || upperTag.StartsWith("PET_");
-
-        // Strict Coflnet parity for pet root: only expose the known applicable pet filters.
-        if (isPetRoot)
-        {
-            var petAllowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "HighestBid",
-                "Rarity",
-                "PetLevel",
-                "Bin",
-                "Candy",
-                "PetSkin",
-                "PetItem",
-                "Clean",
-                "Seller",
-                "StartingBid",
-                "UId",
-                "EndBefore",
-                "EndAfter",
-                "ItemCreatedBefore",
-                "ItemCreatedAfter",
-                "Everything",
-                "Sold",
-                "ItemNameContains",
-                "PetExp",
-                "NoOtherValuableEnchants"
-            };
-
-            var petOptions = registry.Filters
-                .Where(f => petAllowed.Contains(f.Name))
-                .Select(filter =>
-                {
-                    string[] filterOptions;
-                    try
-                    {
-                        filterOptions = filter.OptionsGet(emptyContext).ToArray();
-                    }
-                    catch
-                    {
-                        filterOptions = Array.Empty<string>();
-                    }
-
-                    return new FilterOptions
-                    {
-                        Name = filter.Name,
-                        Type = filter.FilterType,
-                        LongType = filter.FilterType.ToString(),
-                        Options = filterOptions
-                    };
-                })
-                .OrderBy(o =>
-                {
-                    // keep order close to coflnet UX
-                    return o.Name switch
-                    {
-                        "HighestBid" => 1,
-                        "Rarity" => 2,
-                        "PetLevel" => 3,
-                        "Bin" => 4,
-                        "Candy" => 5,
-                        "PetSkin" => 6,
-                        "PetItem" => 7,
-                        "Clean" => 8,
-                        "Seller" => 9,
-                        "StartingBid" => 10,
-                        "UId" => 11,
-                        "EndBefore" => 12,
-                        "EndAfter" => 13,
-                        "ItemCreatedBefore" => 14,
-                        "ItemCreatedAfter" => 15,
-                        "Everything" => 16,
-                        "Sold" => 17,
-                        "ItemNameContains" => 18,
-                        "PetExp" => 19,
-                        "NoOtherValuableEnchants" => 20,
-                        _ => 999
-                    };
-                })
-                .ToList();
-
-            return Ok(petOptions);
-        }
-
-        var existingNbtKeys = new HashSet<string>(
-            await db.NBTLookups
-                .Where(l => l.Auction != null && l.KeyId.HasValue)
-                .Where(l => isPetRoot
-                    ? l.Auction!.Tag.StartsWith("PET_")
-                    : l.Auction!.Tag == upperTag)
-                .Join(db.NBTKeys, l => l.KeyId, k => k.Id, (l, k) => k.KeyName)
-                .Distinct()
-                .ToListAsync(),
-            StringComparer.OrdinalIgnoreCase);
-
-        // Query which enchant types exist for this tag
-        var existingEnchants = new HashSet<string>(
-            await db.Enchantments
-                .Where(e => e.Auction != null)
-                .Where(e => isPetRoot
-                    ? e.Auction!.Tag.StartsWith("PET_")
-                    : e.Auction!.Tag == upperTag)
-                .Select(e => e.Type.ToString())
-                .Distinct()
-                .ToListAsync(),
-            StringComparer.OrdinalIgnoreCase);
-
-        var tagCategory = await db.Auctions
-            .Where(a => isPetRoot ? a.Tag.StartsWith("PET_") : a.Tag == upperTag)
-            .Select(a => a.Category)
-            .FirstOrDefaultAsync();
-
-        var applicabilityContext = new Services.Filters.FilterApplicabilityContext(
-            upperTag,
-            tagCategory,
-            existingEnchants.Count > 0,
-            existingNbtKeys);
-
-        var universalFilters = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "HighestBid",
-            "StartingBid",
-            "Rarity",
-            "Bin",
-            "Seller",
-            "UId",
-            "EndBefore",
-            "EndAfter",
-            "ItemCreatedBefore",
-            "ItemCreatedAfter",
-            "Everything",
-            "Sold",
-            "ItemNameContains",
-            "Clean"
-        };
+        var applicabilityContext = await BuildFilterApplicabilityContextAsync(upperTag);
 
         var options = registry.FiltersFor(applicabilityContext)
-            .Where(filter =>
-            {
-                if (universalFilters.Contains(filter.Name))
-                    return true;
-
-                if (filter is Services.Filters.INbtFilter nbtFilter)
-                    return existingNbtKeys.Contains(nbtFilter.NbtKey);
-
-                if (filter is Services.Filters.EnchantmentFilter
-                    || filter is Services.Filters.SecondEnchantmentFilter
-                    || filter is Services.Filters.EnchantLvlFilter
-                    || filter is Services.Filters.SecondEnchantLvlFilter)
-                    return existingEnchants.Count > 0;
-
-                if (filter is Services.Filters.EnchantBaseFilter)
-                    return existingEnchants.Contains(filter.Name);
-
-                if (filter is Services.Filters.IApplicableFilter)
-                    return true;
-
-                return false;
-            })
+            .Where(filter => ShouldExposeFilterForContext(filter, applicabilityContext))
             .Select(filter =>
             {
                 string[] filterOptions;
@@ -525,9 +371,150 @@ public class AuctionsController : ControllerBase
                     Options = filterOptions
                 };
             })
+            .OrderBy(o => GetFilterSortOrder(o.Name, applicabilityContext))
             .ToList();
 
         return Ok(options);
+    }
+
+    private static readonly HashSet<string> UniversalFilters = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "HighestBid",
+        "StartingBid",
+        "Rarity",
+        "Bin",
+        "Seller",
+        "UId",
+        "EndBefore",
+        "EndAfter",
+        "ItemCreatedBefore",
+        "ItemCreatedAfter",
+        "Everything",
+        "Sold",
+        "ItemNameContains",
+        "Clean"
+    };
+
+    private static readonly HashSet<string> PetAllowedFilters = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "HighestBid",
+        "Rarity",
+        "PetLevel",
+        "Bin",
+        "Candy",
+        "PetSkin",
+        "PetItem",
+        "Clean",
+        "Seller",
+        "StartingBid",
+        "UId",
+        "EndBefore",
+        "EndAfter",
+        "ItemCreatedBefore",
+        "ItemCreatedAfter",
+        "Everything",
+        "Sold",
+        "ItemNameContains",
+        "PetExp",
+        "NoOtherValuableEnchants"
+    };
+
+    private static readonly Dictionary<string, int> PetFilterOrder = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["HighestBid"] = 1,
+        ["Rarity"] = 2,
+        ["PetLevel"] = 3,
+        ["Bin"] = 4,
+        ["Candy"] = 5,
+        ["PetSkin"] = 6,
+        ["PetItem"] = 7,
+        ["Clean"] = 8,
+        ["Seller"] = 9,
+        ["StartingBid"] = 10,
+        ["UId"] = 11,
+        ["EndBefore"] = 12,
+        ["EndAfter"] = 13,
+        ["ItemCreatedBefore"] = 14,
+        ["ItemCreatedAfter"] = 15,
+        ["Everything"] = 16,
+        ["Sold"] = 17,
+        ["ItemNameContains"] = 18,
+        ["PetExp"] = 19,
+        ["NoOtherValuableEnchants"] = 20
+    };
+
+    private static bool IsPetTag(string tag)
+        => tag == "PET" || tag.StartsWith("PET_", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<Services.Filters.FilterApplicabilityContext> BuildFilterApplicabilityContextAsync(string upperTag)
+    {
+        var db = HttpContext.RequestServices.GetRequiredService<SkyFlipperSolo.Data.AppDbContext>();
+        var isPetRoot = IsPetTag(upperTag);
+
+        var existingNbtKeys = new HashSet<string>(
+            await db.NBTLookups
+                .Where(l => l.Auction != null && l.KeyId.HasValue)
+                .Where(l => isPetRoot
+                    ? l.Auction!.Tag.StartsWith("PET_")
+                    : l.Auction!.Tag == upperTag)
+                .Join(db.NBTKeys, l => l.KeyId, k => k.Id, (l, k) => k.KeyName)
+                .Distinct()
+                .ToListAsync(),
+            StringComparer.OrdinalIgnoreCase);
+
+        var existingEnchants = new HashSet<string>(
+            await db.Enchantments
+                .Where(e => e.Auction != null)
+                .Where(e => isPetRoot
+                    ? e.Auction!.Tag.StartsWith("PET_")
+                    : e.Auction!.Tag == upperTag)
+                .Select(e => e.Type.ToString())
+                .Distinct()
+                .ToListAsync(),
+            StringComparer.OrdinalIgnoreCase);
+
+        var tagCategory = await db.Auctions
+            .Where(a => isPetRoot ? a.Tag.StartsWith("PET_") : a.Tag == upperTag)
+            .Select(a => a.Category)
+            .FirstOrDefaultAsync();
+
+        return new Services.Filters.FilterApplicabilityContext(
+            upperTag,
+            tagCategory,
+            existingEnchants.Count > 0,
+            existingNbtKeys);
+    }
+
+    private static bool ShouldExposeFilterForContext(Services.Filters.IFilter filter, Services.Filters.FilterApplicabilityContext context)
+    {
+        if (IsPetTag(context.Tag))
+        {
+            return PetAllowedFilters.Contains(filter.Name);
+        }
+
+        if (UniversalFilters.Contains(filter.Name))
+            return true;
+
+        if (filter is Services.Filters.INbtFilter nbtFilter)
+            return context.NbtKeys.Contains(nbtFilter.NbtKey);
+
+        if (filter is Services.Filters.EnchantmentFilter
+            || filter is Services.Filters.SecondEnchantmentFilter
+            || filter is Services.Filters.EnchantLvlFilter
+            || filter is Services.Filters.SecondEnchantLvlFilter)
+            return context.HasEnchantments;
+
+        if (filter is Services.Filters.EnchantBaseFilter)
+            return context.HasEnchantments;
+
+        return filter is Services.Filters.IApplicableFilter;
+    }
+
+    private static int GetFilterSortOrder(string filterName, Services.Filters.FilterApplicabilityContext context)
+    {
+        if (IsPetTag(context.Tag) && PetFilterOrder.TryGetValue(filterName, out var petOrder))
+            return petOrder;
+        return 999;
     }
 
     /// <summary>
@@ -808,7 +795,7 @@ public class AuctionsController : ControllerBase
         // Apply filters if provided
         if (filters != null && filters.Count > 0)
         {
-            query = ApplyFilters(query, filters);
+            query = await ApplyFilters(query, filters, upperTag);
         }
 
         try
@@ -881,10 +868,32 @@ public class AuctionsController : ControllerBase
     /// <summary>
     /// Apply filters to auction query using FilterEngine.
     /// </summary>
-    private IQueryable<Auction> ApplyFilters(IQueryable<Auction> query, IDictionary<string, string> filters)
+    private async Task<IQueryable<Auction>> ApplyFilters(IQueryable<Auction> query, IDictionary<string, string> filters, string itemTag)
     {
-        var engine = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterEngine>();
-        return engine.ApplyFilters(query, filters);
+        var registry = HttpContext.RequestServices.GetRequiredService<Services.Filters.FilterRegistry>();
+        var filterContext = new Services.Filters.FilterContext(filters);
+        var applicabilityContext = await BuildFilterApplicabilityContextAsync(itemTag.ToUpper());
+
+        foreach (var regFilter in registry.FiltersFor(applicabilityContext))
+        {
+            if (!ShouldExposeFilterForContext(regFilter, applicabilityContext))
+                continue;
+
+            var value = filterContext.Get(regFilter.Name);
+            if (string.IsNullOrEmpty(value))
+                continue;
+
+            try
+            {
+                query = regFilter.Apply(query, filterContext);
+            }
+            catch
+            {
+                // Skip invalid filter application and continue.
+            }
+        }
+
+        return query;
     }
 
     /// <summary>
@@ -905,7 +914,7 @@ public class AuctionsController : ControllerBase
 
         if (filters != null && filters.Count > 0)
         {
-            query = ApplyFilters(query, filters);
+            query = await ApplyFilters(query, filters, upperTag);
         }
 
         var prices = await query
@@ -965,7 +974,7 @@ public class AuctionsController : ControllerBase
 
         if (filters != null && filters.Count > 0)
         {
-            query = ApplyFilters(query, filters);
+            query = await ApplyFilters(query, filters, upperTag);
         }
 
         var lowestBins = await query
@@ -1008,7 +1017,7 @@ public class AuctionsController : ControllerBase
 
         if (filters != null && filters.Count > 0)
         {
-            query = ApplyFilters(query, filters);
+            query = await ApplyFilters(query, filters, upperTag);
         }
 
         // Apply sorting
@@ -1069,7 +1078,7 @@ public class AuctionsController : ControllerBase
 
         if (filters != null && filters.Count > 0)
         {
-            query = ApplyFilters(query, filters);
+            query = await ApplyFilters(query, filters, upperTag);
         }
 
         var total = await query.CountAsync();

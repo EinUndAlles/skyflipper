@@ -24,15 +24,33 @@ public sealed class PetLevelFilter : NumberFilterBase, IApplicableFilter
 
     protected override IQueryable<Auction> ApplyRanges(IQueryable<Auction> query, List<(long Min, long Max)> ranges, FilterContext context)
     {
-        var rarity = context.Get("Rarity");
-        if (string.IsNullOrEmpty(rarity) && ranges.Any(r => r.Min != r.Max))
-            return query;
+        // Regex + int.Parse on IQueryable is not SQL-translatable.
+        // Materialize a small projection and filter in-memory, then apply back by IDs.
+        var candidates = query
+            .Where(a => a.Tag.StartsWith("PET"))
+            .Select(a => new { a.Id, a.ItemName })
+            .ToList();
 
-        var (min, max) = ranges[0];
-        return query.Where(a => a.Tag.StartsWith("PET") &&
-                                NameRegex.IsMatch(a.ItemName) &&
-                                int.Parse(NameRegex.Match(a.ItemName).Groups[1].Value) >= min &&
-                                int.Parse(NameRegex.Match(a.ItemName).Groups[1].Value) <= max);
+        var matchingIds = candidates
+            .Where(a => !string.IsNullOrEmpty(a.ItemName))
+            .Where(a =>
+            {
+                var match = NameRegex.Match(a.ItemName);
+                if (!match.Success)
+                    return false;
+
+                if (!int.TryParse(match.Groups[1].Value, out var level))
+                    return false;
+
+                return ranges.Any(r => level >= r.Min && level <= r.Max);
+            })
+            .Select(a => a.Id)
+            .ToList();
+
+        if (matchingIds.Count == 0)
+            return query.Where(a => false);
+
+        return query.Where(a => matchingIds.Contains(a.Id));
     }
 
     public bool IsApplicable(FilterApplicabilityContext context)
